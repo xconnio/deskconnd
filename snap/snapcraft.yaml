@@ -1,0 +1,76 @@
+name: deskconnd
+version: git
+summary: Expose your desktop functionalities over network
+description: |
+  Expose your desktop functionalities over network
+
+grade: stable
+confinement: strict
+base: core18
+
+architectures:
+  - build-on: amd64
+    run-on: amd64
+
+  - build-on: i386
+    run-on: i386
+
+  - build-on: armhf
+    run-on: armhf
+
+parts:
+  launchers:
+    plugin: dump
+    source: .
+    stage:
+      - pair.py
+      - server.py
+      - .crossbar
+    prime:
+      - pair.py
+      - server.py
+      - .crossbar
+  deskconn:
+    plugin: python
+    source: .
+    requirements:
+      - requirements.txt
+    stage-packages:
+      - libsnappy1v5
+    build-packages:
+      - pkg-config
+      - gcc
+      - libffi-dev
+      - libssl-dev
+      - make
+      - libbz2-dev
+      - libsnappy-dev
+      - libunwind-dev
+
+apps:
+  deskconnd:
+    command: python3 -u $SNAP/server.py
+    daemon: simple
+    restart-condition: always
+    plugs:
+      - network
+      - network-bind
+  pair:
+    command: python3 -u $SNAP/pair.py
+    plugs:
+      - network
+      - network-bind
+
+slots:
+  deskconn-sock-dir:
+    interface: content
+    content: socket-directory
+    write:
+      - $SNAP_COMMON
+
+plugs:
+  services-content:
+    content: avahi-services
+    default-provider: avahi:services-content
+    interface: content
+    target: $SNAP_COMMON
