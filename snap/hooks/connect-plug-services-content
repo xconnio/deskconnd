@@ -10,4 +10,4 @@ echo '<?xml version="1.0" standalone="no"?>
     <port>5020</port>
     <txt-record>realm=deskconn</txt-record>
   </service>
-</service-group>' > $SNAP_COMMON/deskconn.service
+</service-group>' > $SNAP_COMMON/avahi-services-dir/deskconn.service
