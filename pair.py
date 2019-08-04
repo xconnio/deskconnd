@@ -12,7 +12,9 @@ def _is_snap():
     return os.environ.get('SNAP_NAME') == 'deskconnd'
 
 
-if not _is_snap():
+if _is_snap():
+    os.environ['DESKCONND_SOCK_DIR'] = os.path.expandvars('$SNAP_COMMON/deskconnd-sock-dir')
+else:
     os.environ['DESKCONND_SOCK_DIR'] = os.path.expandvars('$HOME/deskconnd-sock-dir')
 
 transport = {
