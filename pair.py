@@ -13,16 +13,14 @@ def _is_snap():
 
 
 if _is_snap():
-    os.environ['DESKCONND_SOCK_DIR'] = os.path.expandvars('$SNAP_COMMON/deskconnd-sock-dir')
+    sock_dir = os.path.expandvars('$SNAP_COMMON/deskconnd-sock-dir')
 else:
-    os.environ['DESKCONND_SOCK_DIR'] = os.path.expandvars('$HOME/deskconnd-sock-dir')
+    sock_dir = os.path.expandvars('$HOME/deskconnd-sock-dir')
 
 transport = {
     "type": "rawsocket",
     "url": "ws://localhost/ws",
-    "endpoint": UNIXClientEndpoint(reactor,
-                                   os.path.join(os.path.expandvars('$DESKCONND_SOCK_DIR'),
-                                                'deskconn.sock')),
+    "endpoint": UNIXClientEndpoint(reactor, os.path.join(sock_dir, 'deskconn.sock')),
     "serializer": "cbor",
 }
 
