@@ -34,6 +34,7 @@ def get_start_params():
         params.append(os.environ.get('SNAP_USER_DATA'))
         params.append('--config')
         params.append(os.path.join(os.environ.get('SNAP'), '.crossbar/config.yaml'))
+        Path(os.path.expandvars('$SNAP_COMMON/avahi-services-dir')).mkdir(exist_ok=True)
         sock_dir = os.path.expandvars('$SNAP_COMMON/deskconnd-sock-dir')
     else:
         sock_dir = os.path.expandvars('$HOME/deskconnd-sock-dir')

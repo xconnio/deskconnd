@@ -66,11 +66,11 @@ slots:
     interface: content
     content: socket-directory
     write:
-      - $SNAP_COMMON
+      - $SNAP_COMMON/deskconnd-sock-dir
 
 plugs:
   services-content:
     content: avahi-services
     default-provider: avahi:services-content
     interface: content
-    target: $SNAP_COMMON
+    target: $SNAP_COMMON/avahi-services-dir
