@@ -68,7 +68,7 @@ apps:
       - network-bind
 
 slots:
-  deskconn-sock-dir:
+  sock-dir:
     interface: content
     content: socket-directory
     write:
@@ -80,7 +80,7 @@ slots:
       - $SNAP/lib/python3.6/site-packages
 
 plugs:
-  services-content:
+  discovery:
     content: avahi-services
     default-provider: avahi:services-content
     interface: content
