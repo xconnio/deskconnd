@@ -20,7 +20,7 @@ else:
 transport = {
     "type": "rawsocket",
     "url": "ws://localhost/ws",
-    "endpoint": UNIXClientEndpoint(reactor, os.path.join(sock_dir, 'deskconn.sock')),
+    "endpoint": UNIXClientEndpoint(reactor, os.path.join(sock_dir, 'deskconnd.sock')),
     "serializer": "cbor",
 }
 

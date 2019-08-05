@@ -57,7 +57,7 @@ workers:
   - type: rawsocket
     endpoint:
       type: unix
-      path: $DESKCONND_SOCK_DIR/deskconn.sock
+      path: $DESKCONND_SOCK_DIR/deskconnd.sock
     auth:
       anonymous:
         type: static
