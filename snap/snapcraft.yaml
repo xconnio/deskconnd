@@ -55,14 +55,14 @@ parts:
 
 apps:
   deskconnd:
-    command: python3 -u $SNAP/server.py
+    command: server.py
     daemon: simple
     restart-condition: always
     plugs:
       - network
       - network-bind
   pair:
-    command: python3 -u $SNAP/pair.py
+    command: pair.py
     plugs:
       - network
       - network-bind
