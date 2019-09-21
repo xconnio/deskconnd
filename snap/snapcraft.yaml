@@ -18,6 +18,9 @@ architectures:
   - build-on: armhf
     run-on: armhf
 
+environment:
+  PYTHONPATH: PYTHONPATH:$SNAP_COMMON/crossbar-runtime-dir
+
 parts:
   launchers:
     plugin: dump
@@ -33,25 +36,8 @@ parts:
   deskconn:
     plugin: python
     source: .
-    requirements:
-      - requirements.txt
-    stage-packages:
-      - libsnappy1v5
-    build-packages:
-      - pkg-config
-      - gcc
-      - libffi-dev
-      - libssl-dev
-      - make
-      - libbz2-dev
-      - libsnappy-dev
-      - libunwind-dev
-    override-prime: |
-      snapcraftctl prime
-      echo "Compiling pyc files..."
-      # Delete the file that would fail the compilation process
-      rm $SNAPCRAFT_PRIME/lib/python3.6/site-packages/crossbar/worker/test/examples/syntaxerror.py
-      $SNAPCRAFT_PART_INSTALL/usr/bin/python3 -m compileall -q $SNAPCRAFT_PRIME
+    python-packages:
+      - sqlitedict
 
 apps:
   deskconnd:
@@ -73,11 +59,6 @@ slots:
     content: socket-directory
     write:
       - $SNAP_COMMON/deskconnd-sock-dir
-  runtime-dir:
-    interface: content
-    content: executables
-    read:
-      - $SNAP/lib/python3.6/site-packages
 
 plugs:
   discovery:
@@ -85,3 +66,8 @@ plugs:
     default-provider: avahi:services-content
     interface: content
     target: $SNAP_COMMON/avahi-services-dir
+  crossbar-runtime-dir:
+    content: executables
+    default-provider: crossbar:runtime-dir
+    interface: content
+    target: $SNAP_COMMON/crossbar-runtime-dir
