@@ -19,7 +19,8 @@ architectures:
     run-on: armhf
 
 environment:
-  PYTHONPATH: PYTHONPATH:$SNAP_COMMON/crossbar-runtime-dir
+  PYTHONPATH: $PYTHONPATH:$SNAP_COMMON/crossbar-runtime-dir
+  PATH: $PATH:$SNAP_COMMON/crossbar-runtime-dir-2
 
 parts:
   launchers:
@@ -38,12 +39,13 @@ parts:
     source: .
     python-packages:
       - sqlitedict
+      - zeroconf
 
 apps:
   deskconnd:
     command: server.sh
     daemon: simple
-    restart-condition: always
+    restart-condition: never
     plugs:
       - network
       - network-bind

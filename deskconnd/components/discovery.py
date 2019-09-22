@@ -1,6 +1,7 @@
-import socket
 import fcntl
+import socket
 import struct
+import time
 
 from autobahn.twisted import wamp
 from twisted.internet.task import LoopingCall
@@ -51,46 +52,57 @@ def initialize_service(ip):
 class ServiceDiscoveryComponent(wamp.ApplicationSession):
     def __init__(self, config=None):
         super().__init__(config)
-        self.local_ip = get_local_ip()
-        self.service_info = None
+        self.running = False
+        self.local_ip = None
         self.zeroconf = Zeroconf()
-        self.repeated_called = LoopingCall(self.check_has_ip)
-        self.repeated_called.start(5)
+        self.repeated_call = None
+        self.unregister_on_connect = False
 
     def check_has_ip(self):
         current_ip = get_local_ip()
+        if self.running and not current_ip:
+            self.unregister_on_connect = True
+            self.local_ip = None
+            return
+
+        if self.unregister_on_connect:
+            self.stop_publishing(True)
+            self.unregister_on_connect = False
+
         if self.local_ip and not current_ip:
             self.stop_publishing()
+            self.local_ip = current_ip
         elif not self.local_ip and current_ip:
+            self.local_ip = current_ip
             self.start_publishing()
         elif self.local_ip != current_ip:
+            self.local_ip = current_ip
             self.start_publishing()
-        self.local_ip = current_ip
 
     def onJoin(self, details):
         self.log.info('session joined: {}'.format(details))
-        self.start_publishing()
+        self.repeated_call = LoopingCall(self.check_has_ip)
+        self.repeated_call.start(5)
+        self.check_has_ip()
 
     def onLeave(self, details):
         self.log.info('session left: {}'.format(details))
-        self.repeated_called.stop()
+        self.repeated_call.stop()
         self.stop_publishing()
+        self.zeroconf.close()
         self.disconnect()
 
     def start_publishing(self):
-        if self.service_info:
+        if self.running:
             self.stop_publishing()
-        if not self.local_ip:
-            self.log.warn("Not connected to a network...")
-            return
-        self.service_info = initialize_service(self.local_ip)
         self.log.info("Registering service: {}".format(SERVICE_TYPE))
-        self.zeroconf.register_service(self.service_info)
+        self.zeroconf.register_service(initialize_service(self.local_ip))
         self.log.info("Registered service: {}".format(SERVICE_TYPE))
+        self.running = True
 
-    def stop_publishing(self):
-        self.log.info("Unregistering service: {}".format(SERVICE_TYPE))
+    def stop_publishing(self, wait=False):
         self.zeroconf.unregister_all_services()
-        self.zeroconf.close()
+        if wait:
+            time.sleep(1)
+        self.running = False
         self.log.info("Unregistered service: {}".format(SERVICE_TYPE))
-        self.service_info = None
