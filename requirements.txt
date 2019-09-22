@@ -3,3 +3,4 @@ autobahn[twisted,serialization]
 twisted
 sqlitedict
 pynacl
+zeroconf

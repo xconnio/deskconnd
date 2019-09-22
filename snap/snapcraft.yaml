@@ -27,11 +27,11 @@ parts:
     source: .
     stage:
       - pair.py
-      - server.py
+      - server.sh
       - .crossbar
     prime:
       - pair.py
-      - server.py
+      - server.sh
       - .crossbar
   deskconn:
     plugin: python
@@ -41,7 +41,7 @@ parts:
 
 apps:
   deskconnd:
-    command: server.py
+    command: server.sh
     daemon: simple
     restart-condition: always
     plugs:
@@ -61,11 +61,6 @@ slots:
       - $SNAP_COMMON/deskconnd-sock-dir
 
 plugs:
-  discovery:
-    content: avahi-services
-    default-provider: avahi:services-content
-    interface: content
-    target: $SNAP_COMMON/avahi-services-dir
   crossbar-runtime-dir:
     content: executables
     default-provider: crossbar:runtime-dir
