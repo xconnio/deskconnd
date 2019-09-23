@@ -1,6 +1,4 @@
-crossbar
 autobahn[twisted,serialization]
-twisted
-sqlitedict
-pynacl
+txaio
 zeroconf
+sqlitedict

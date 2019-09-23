@@ -1,15 +1,15 @@
-import binascii
 import os
+import pickle
 import random
 from pathlib import Path
 import tempfile
 
-from autobahn.twisted.wamp import ApplicationSession
 from autobahn import wamp
 from autobahn.wamp import ApplicationError
-from nacl.public import PrivateKey
+from autobahn.wamp.cryptobox import KeyRing
+from autobahn.twisted.wamp import ApplicationSession
 from sqlitedict import SqliteDict
-from twisted.internet import reactor
+import txaio
 
 
 def add_key(key_authid, realm, role):
@@ -40,20 +40,16 @@ class PairingComponent(ApplicationSession):
 
     def _generate_and_save_key_pair(self):
         if os.path.exists(self._key_file):
-            with open(self._key_file) as file:
-                self._public_key, self._private_key = file.read().split("\n")
+            with open(self._key_file, 'rb') as file:
+                self._private_key, self._public_key = pickle.load(file)
         else:
-            sk = PrivateKey.generate()
-            self._public_key = binascii.b2a_hex(sk.public_key.encode()).decode()
-            self._private_key = binascii.b2a_hex(sk.encode()).decode()
-            with open(self._key_file, 'w') as file:
-                file.write(self._public_key)
-                file.write("\n")
-                file.write(self._private_key)
+            self._private_key, self._public_key = KeyRing().generate_key_hex()
+            with open(self._key_file, 'wb') as file:
+                pickle.dump((self._private_key, self._public_key), file)
 
     async def onJoin(self, details):
         self.log.info('realm joined: {}'.format(details.realm))
-        await self.register(self, prefix="org.deskconn.pairing.")
+        await self.register(self, prefix="org.deskconn.deskconnd.pairing.")
 
     def _revoke_key(self, key):
         if key in self._pending_otps:
@@ -66,9 +62,9 @@ class PairingComponent(ApplicationSession):
             Path(token_path).unlink()
             key = random.randint(100000, 999999)
             self._pending_otps.append(key)
-            reactor.callLater(30, self._revoke_key, key)
+            txaio.call_later(30, self._revoke_key, key)
             return key
-        raise wamp.ApplicationError("org.deskconn.errors.invalid_caller")
+        raise wamp.ApplicationError("org.deskconn.deskconnd.errors.invalid_caller")
 
     @wamp.register(None)
     async def pair(self, otp, public_key):
@@ -78,7 +74,7 @@ class PairingComponent(ApplicationSession):
             self._pending_otps.remove(otp)
             add_key(public_key, 'deskconn', 'deskconn')
             return True
-        raise wamp.ApplicationError("org.deskconn.errors.invalid_otp")
+        raise wamp.ApplicationError("org.deskconn.deskconnd.errors.invalid_otp")
 
 
 class AuthenticatorSession(ApplicationSession):
@@ -97,7 +93,7 @@ class AuthenticatorSession(ApplicationSession):
                     'cache': True
                 }
             else:
-                raise ApplicationError('org.deskconn.no_such_user',
+                raise ApplicationError('org.deskconn.deskconnd.no_such_user',
                                        'no principal with matching public')
 
-        await self.register(authenticate, 'org.deskconn.authenticate')
+        await self.register(authenticate, 'org.deskconn.deskconnd.authenticate')

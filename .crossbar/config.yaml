@@ -8,7 +8,7 @@ workers:
     roles:
     - name: pairing
       permissions:
-      - uri: 'org.deskconn.pairing.'
+      - uri: 'org.deskconn.deskconnd.pairing.'
         match: prefix
         allow:
           call: true
@@ -21,7 +21,7 @@ workers:
         cache: false
     - name: deskconn
       permissions:
-      - uri: 'org.deskconn.'
+      - uri: ''
         match: prefix
         allow:
           call: true
@@ -44,6 +44,7 @@ workers:
   - type: class
     realm: deskconn
     classname: deskconnd.components.discovery.ServiceDiscoveryComponent
+    role: deskconn
   transports:
   - type: websocket
     endpoint:
@@ -55,7 +56,7 @@ workers:
         role: pairing
       cryptosign:
         type: dynamic
-        authenticator: org.deskconn.authenticate
+        authenticator: org.deskconn.deskconnd.authenticate
         authenticator-realm: deskconn
   - type: rawsocket
     endpoint:
