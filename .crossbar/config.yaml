@@ -32,19 +32,6 @@ workers:
           caller: false
           publisher: false
         cache: true
-    - name: discovery
-      permissions:
-      - uri: ''
-        match: exact
-        allow:
-          call: false
-          register: false
-          publish: false
-          subscribe: false
-        disclose:
-          caller: false
-          publisher: false
-        cache: false
   components:
   - type: class
     realm: deskconn
@@ -57,7 +44,6 @@ workers:
   - type: class
     realm: deskconn
     classname: deskconnd.components.discovery.ServiceDiscoveryComponent
-    role: discovery
   transports:
   - type: websocket
     endpoint:
