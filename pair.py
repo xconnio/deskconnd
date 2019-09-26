@@ -35,7 +35,7 @@ async def joined(session, _details):
     verify_path = os.path.join(tempfile.gettempdir(), unique_id)
     Path(verify_path).touch()
     if os.path.exists(verify_path):
-        res = await session.call("org.deskconn.pairing.generate", unique_id)
+        res = await session.call("org.deskconn.deskconnd.pairing.generate", unique_id)
         print("\nYour Pairing OTP is: {}\n".format(res))
     else:
         print("\nNot able to create {}\n".format(verify_path))
