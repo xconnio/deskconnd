@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SHOULD_PRINT=false
+SHOULD_PRINT=true
 
 while true
 do
@@ -8,9 +8,9 @@ do
     echo "Crossbar found, now starting..."
     break
   else
-    if [ $SHOULD_PRINT = false ]; then
-      echo "Waiting for crossbar interface to connect"
-      SHOULD_PRINT=true
+    if [ $SHOULD_PRINT = true ]; then
+      echo "Waiting for crossbar runtime directory interface to connect"
+      SHOULD_PRINT=false
     fi
     sleep 1
   fi
