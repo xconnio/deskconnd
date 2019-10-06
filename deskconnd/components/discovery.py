@@ -2,7 +2,6 @@ import fcntl
 import socket
 import struct
 import time
-import uuid
 
 from autobahn.twisted import wamp
 from twisted.internet.task import LoopingCall
@@ -40,13 +39,18 @@ def get_local_ip():
     return gateway
 
 
+def get_system_uid():
+    with open("/etc/machine-id") as file:
+        return file.read().strip()
+
+
 def initialize_service(ip):
     return ServiceInfo(
         type_="{}.local.".format(SERVICE_TYPE),
         name="{}.{}.local.".format(socket.gethostname(), SERVICE_TYPE),
         address=socket.inet_aton(ip),
         port=SERVICE_PORT,
-        properties={"realm": "deskconn", "uid": ''.join(uuid.uuid4().__str__().split('-'))}
+        properties={"realm": "deskconn", "uid": get_system_uid()}
     )
 
 
