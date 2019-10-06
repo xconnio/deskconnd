@@ -2,6 +2,7 @@ import fcntl
 import socket
 import struct
 import time
+import uuid
 
 from autobahn.twisted import wamp
 from twisted.internet.task import LoopingCall
@@ -45,7 +46,7 @@ def initialize_service(ip):
         name="{}.{}.local.".format(socket.gethostname(), SERVICE_TYPE),
         address=socket.inet_aton(ip),
         port=SERVICE_PORT,
-        properties={"realm": "deskconn"}
+        properties={"realm": "deskconn", "uid": ''.join(uuid.uuid4().__str__().split('-'))}
     )
 
 
