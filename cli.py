@@ -7,6 +7,12 @@ import qrcode
 from deskconnd.database.controller import DB
 
 
+def _print_qr_code(text):
+    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M)
+    qr.add_data(text)
+    qr.print_ascii(tty=True)
+
+
 def generate_otp():
     principle = DB.get_local_principle()
     component = Component(transports="ws://localhost:5020/ws", realm=principle.realm,
@@ -18,9 +24,7 @@ def generate_otp():
     @component.on_join
     async def joined(session, _details):
         res = await session.call("org.deskconn.deskconnd.pairing.generate")
-        code = qrcode.QRCode()
-        code.add_data(res)
-        code.print_ascii()
+        _print_qr_code(res)
         print("    Pairing code: {}\n\n".format(res))
         session.leave()
 
