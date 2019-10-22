@@ -58,6 +58,8 @@ apps:
       - network-bind
   deskconnctl:
     command: cli.py
+    environment:
+      LANG: C.UTF-8
     plugs:
       - network
       - network-bind
