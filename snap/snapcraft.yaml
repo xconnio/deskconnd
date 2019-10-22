@@ -1,8 +1,14 @@
 name: deskconnd
 version: git
-summary: Expose your desktop functionalities over network
+summary: Secure, cross-platform IPC on the network
 description: |
-  Expose your desktop functionalities over network
+  Secure, cross-platform IPC on the network
+
+  * Communication over WebSockets/WAMP
+  * Supports multiple programming languages
+  * End-to-end encryption by default
+
+  https://github.com/deskconn/deskconnd
 
 grade: stable
 confinement: strict
@@ -27,19 +33,20 @@ parts:
     plugin: dump
     source: .
     stage:
-      - pair.py
+      - cli.py
       - server.sh
       - .crossbar
     prime:
-      - pair.py
+      - cli.py
       - server.sh
       - .crossbar
   deskconn:
     plugin: python
     source: .
     python-packages:
-      - sqlitedict
+      - sqlalchemy
       - zeroconf
+      - qrcode[pil]
 
 apps:
   deskconnd:
@@ -49,18 +56,11 @@ apps:
     plugs:
       - network
       - network-bind
-  pair:
-    command: pair.py
+  deskconnctl:
+    command: cli.py
     plugs:
       - network
       - network-bind
-
-slots:
-  sock-dir:
-    interface: content
-    content: socket-directory
-    write:
-      - $SNAP_COMMON/deskconnd-sock-dir
 
 plugs:
   crossbar-runtime-dir:

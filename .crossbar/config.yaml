@@ -1,4 +1,3 @@
-$schema: https://raw.githubusercontent.com/crossbario/crossbar/master/crossbar.json
 version: 2
 controller: {}
 workers:
@@ -6,63 +5,49 @@ workers:
   realms:
   - name: deskconn
     roles:
-    - name: pairing
-      permissions:
-      - uri: 'org.deskconn.deskconnd.pairing.'
-        match: prefix
-        allow:
-          call: true
-          register: true
-          publish: false
-          subscribe: false
-        disclose:
-          caller: false
-          publisher: false
-        cache: false
     - name: deskconn
       permissions:
-      - uri: ''
-        match: prefix
-        allow:
-          call: true
-          register: true
-          publish: true
-          subscribe: true
-        disclose:
-          caller: false
-          publisher: false
-        cache: true
+        - uri: ''
+          match: prefix
+          allow:
+            register: true
+            call: true
+            publish: true
+            subscribe: true
+          disclose:
+            caller: false
+            publisher: false
+          cache: true
+    - name: authenticator
+      permissions:
+        - uri: org.deskconn.deskconnd.authenticate
+          match: exact
+          allow:
+            register: true
+          disclose:
+            caller: false
+            publisher: false
+          cache: true
   components:
   - type: class
     realm: deskconn
-    classname: deskconnd.components.pairing.PairingComponent
-    role: pairing
+    role: deskconn
+    classname: deskconnd.components.pairing.PairingSession
   - type: class
     realm: deskconn
-    classname: deskconnd.components.pairing.AuthenticatorSession
-    role: deskconn
+    role: authenticator
+    classname: deskconnd.components.authentication.AuthSession
   - type: class
     realm: deskconn
-    classname: deskconnd.components.discovery.ServiceDiscoveryComponent
     role: deskconn
+    classname: deskconnd.components.discovery.ServiceDiscoverySession
   transports:
   - type: websocket
     endpoint:
       type: tcp
       port: 5020
     auth:
-      anonymous:
-        type: static
-        role: pairing
       cryptosign:
         type: dynamic
         authenticator: org.deskconn.deskconnd.authenticate
         authenticator-realm: deskconn
-  - type: rawsocket
-    endpoint:
-      type: unix
-      path: $DESKCONND_SOCK_DIR/deskconnd.sock
-    auth:
-      anonymous:
-        type: static
-        role: deskconn

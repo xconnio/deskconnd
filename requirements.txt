@@ -1,4 +1,4 @@
 autobahn[twisted,serialization]
-txaio
 zeroconf
-sqlitedict
+sqlalchemy
+qrcode[pil]

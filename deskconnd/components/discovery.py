@@ -54,7 +54,7 @@ def initialize_service(ip):
     )
 
 
-class ServiceDiscoveryComponent(wamp.ApplicationSession):
+class ServiceDiscoverySession(wamp.ApplicationSession):
     def __init__(self, config=None):
         super().__init__(config)
         self.running = False
