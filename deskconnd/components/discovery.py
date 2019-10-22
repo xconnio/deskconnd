@@ -1,4 +1,5 @@
 import fcntl
+import os
 import socket
 import struct
 import time
@@ -8,12 +9,7 @@ from twisted.internet.task import LoopingCall
 from zeroconf import ServiceInfo, Zeroconf
 
 SERVICE_TYPE = '_deskconn._tcp'
-SERVICE_PORT = 5020
-
-
-def is_port_in_use(port):
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        return sock.connect_ex(('localhost', port)) == 0
+FALLBACK_PORT = 5020
 
 
 def get_ip_address(iface):
@@ -49,7 +45,7 @@ def initialize_service(ip):
         type_="{}.local.".format(SERVICE_TYPE),
         name="{}.{}.local.".format(socket.gethostname(), SERVICE_TYPE),
         address=socket.inet_aton(ip),
-        port=SERVICE_PORT,
+        port=os.environ.get("$DESKCONN_PORT", FALLBACK_PORT),
         properties={"realm": "deskconn", "uid": get_system_uid()}
     )
 
@@ -84,7 +80,7 @@ class ServiceDiscoverySession(wamp.ApplicationSession):
             self.local_ip = current_ip
             self.start_publishing()
 
-    def onJoin(self, details):
+    async def onJoin(self, details):
         self.log.info('session joined: {}'.format(details))
         self.repeated_call = LoopingCall(self.check_has_ip)
         self.repeated_call.start(5)
@@ -106,7 +102,7 @@ class ServiceDiscoverySession(wamp.ApplicationSession):
         self.running = True
 
     def stop_publishing(self, wait=False):
-        self.zeroconf.unregister_all_services()
+        self.zeroconf.close()
         if wait:
             time.sleep(1)
         self.running = False

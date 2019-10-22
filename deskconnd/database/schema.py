@@ -15,11 +15,4 @@ class Principle(Base):
     private_key = Column(String(255), nullable=True)
 
 
-class OTP(Base):
-    __tablename__ = 'otps'
-
-    uid = Column(Integer, primary_key=True)
-    otp = Column(Integer, unique=True)
-
-
 Base.metadata.create_all(engine)

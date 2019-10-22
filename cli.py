@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 
+import argparse
+
 from autobahn.twisted.component import Component, run
 from autobahn.wamp.auth import AuthCryptoSign
-import qrcode
+import pyqrcode
 
 from deskconnd.database.controller import DB
 
 
 def _print_qr_code(text):
-    qr = qrcode.QRCode(error_correction=qrcode.constants.ERROR_CORRECT_M)
-    qr.add_data(text)
-    qr.print_ascii(tty=True)
+    qr = pyqrcode.create(text, mode='numeric')
+    print(qr.terminal(quiet_zone=1))
 
 
 def generate_otp():
@@ -25,11 +26,21 @@ def generate_otp():
     async def joined(session, _details):
         res = await session.call("org.deskconn.deskconnd.pairing.generate")
         _print_qr_code(res)
-        print("    Pairing code: {}\n\n".format(res))
+        print("Scan the QR Code or manually pair with: {}\n".format(res))
         session.leave()
 
     return component
 
 
 if __name__ == '__main__':
-    run([generate_otp()], None)
+    parser = argparse.ArgumentParser(description='DeskConn command line utility')
+    parser.add_argument('action',
+                        metavar='ACTION',
+                        type=str,
+                        help='DeskConn CLI interface, accepts any of these: pair, test',
+                        choices=['pair', 'test'])
+    args = parser.parse_args()
+    if args.action == 'pair':
+        run([generate_otp()], None)
+    else:
+        print("Not yet implemented!")
