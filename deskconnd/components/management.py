@@ -39,8 +39,8 @@ class ManagementSession(ApplicationSession):
 
     async def onJoin(self, details):
         self.log.info('realm joined: {}'.format(details.realm))
-        await self.register(self._auth.generate_otp, "org.deskconn.deskconnd.pair")
         await self.register(self._auth.authenticate, 'org.deskconn.deskconnd.authenticate')
+        await self.register(self._auth.generate_otp, "org.deskconn.deskconnd.pair")
         await self.register(self._toggle_discovery, 'org.deskconn.deskconnd.toggle_discovery')
 
         if DB.is_discovery_enabled():

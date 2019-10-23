@@ -33,9 +33,12 @@ parts:
     plugin: dump
     source: .
     prime:
-      - cli.py
-      - server.sh
-      - crossbar.yaml
+      - scripts/cli.py
+      - scripts/daemon.sh
+      - .crossbar.yaml
+    stage:
+      - .crossbar.yaml
+      - scripts/
   deskconn:
     plugin: python
     source: .
@@ -45,14 +48,14 @@ parts:
 
 apps:
   deskconnd:
-    command: server.sh
+    command: scripts/daemon.sh
     daemon: simple
     restart-condition: always
     plugs:
       - network
       - network-bind
   deskconnctl:
-    command: cli.py
+    command: scripts/cli.py
     plugs:
       - network
       - network-bind

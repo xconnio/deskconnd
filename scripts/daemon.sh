@@ -17,4 +17,4 @@ do
 done
 
 export DESKCONN_PORT=5020
-crossbar start --cbdir "$SNAP_USER_DATA" --config "$SNAP"/crossbar.yaml
+crossbar start --cbdir "$SNAP_USER_DATA" --config "$SNAP"/.crossbar.yaml
