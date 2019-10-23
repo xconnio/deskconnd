@@ -15,4 +15,12 @@ class Principle(Base):
     private_key = Column(String(255), nullable=True)
 
 
+class StrKeyStrValue(Base):
+    __tablename__ = 'str_key_str_value'
+
+    uid = Column(Integer, primary_key=True)
+    key = Column(String(255), nullable=False, unique=True)
+    value = Column(String(255), nullable=True)
+
+
 Base.metadata.create_all(engine)

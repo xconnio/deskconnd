@@ -1,4 +1,4 @@
-from deskconnd.database.schema import Principle
+from deskconnd.database.schema import Principle, StrKeyStrValue
 from deskconnd.database.base import Session
 
 
@@ -33,3 +33,34 @@ class DB:
         DB.get_instance().commit()
         return DB.add_principle(auth_id=key_pair[1], auth_role=auth_role, realm=realm, access='local',
                                 private_key=key_pair[0])
+
+    @staticmethod
+    def put_string(key, value):
+        item = DB.get_instance().query(StrKeyStrValue).filter(StrKeyStrValue.key == key).first()
+        if item:
+            item.value = value
+        else:
+            DB.get_instance().add(StrKeyStrValue(key=key, value=value))
+        DB.get_instance().commit()
+
+    @staticmethod
+    def get_string(key, default=None):
+        item = DB.get_instance().query(StrKeyStrValue).filter(StrKeyStrValue.key == key).first()
+        if item:
+            return item.value
+        return default
+
+    @staticmethod
+    def put_boolean(key, value):
+        assert isinstance(value, bool)
+        DB.put_string(key, str(value))
+
+    @staticmethod
+    def get_boolean(key, default=True):
+        value = DB.get_string(key)
+        if value is None:
+            return default
+
+        if value.lower() == 'true':
+            return True
+        return False
