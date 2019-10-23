@@ -6,46 +6,23 @@ class DB:
     __session = None
 
     @staticmethod
-    def get_instance():
+    def _get_instance():
         if not DB.__session:
             DB.__session = Session()
         return DB.__session
 
     @staticmethod
-    def add_principle(auth_id, auth_role, realm, access='remote', private_key=None):
-        principle = Principle(auth_id=auth_id, auth_role=auth_role, realm=realm, access=access, private_key=private_key)
-        DB.get_instance().add(principle)
-        DB.get_instance().commit()
-        return principle
-
-    @staticmethod
-    def get_principle(auth_id, auth_role, realm):
-        return DB.get_instance().query(Principle).filter(
-            Principle.auth_id == auth_id, Principle.auth_role == auth_role, Principle.realm == realm).first()
-
-    @staticmethod
-    def get_local_principle():
-        return DB.get_instance().query(Principle).filter(Principle.access == 'local').first()
-
-    @staticmethod
-    def refresh_local_principle(key_pair, auth_role, realm):
-        DB.get_instance().query(Principle).filter(Principle.access == 'local').delete()
-        DB.get_instance().commit()
-        return DB.add_principle(auth_id=key_pair[1], auth_role=auth_role, realm=realm, access='local',
-                                private_key=key_pair[0])
-
-    @staticmethod
     def put_string(key, value):
-        item = DB.get_instance().query(StrKeyStrValue).filter(StrKeyStrValue.key == key).first()
+        item = DB._get_instance().query(StrKeyStrValue).filter(StrKeyStrValue.key == key).first()
         if item:
             item.value = value
         else:
-            DB.get_instance().add(StrKeyStrValue(key=key, value=value))
-        DB.get_instance().commit()
+            DB._get_instance().add(StrKeyStrValue(key=key, value=value))
+        DB._get_instance().commit()
 
     @staticmethod
     def get_string(key, default=None):
-        item = DB.get_instance().query(StrKeyStrValue).filter(StrKeyStrValue.key == key).first()
+        item = DB._get_instance().query(StrKeyStrValue).filter(StrKeyStrValue.key == key).first()
         if item:
             return item.value
         return default
@@ -64,3 +41,37 @@ class DB:
         if value.lower() == 'true':
             return True
         return False
+
+    @staticmethod
+    def add_principle(auth_id, auth_role, realm, access='remote', private_key=None):
+        principle = Principle(auth_id=auth_id, auth_role=auth_role, realm=realm, access=access,
+                              private_key=private_key)
+        DB._get_instance().add(principle)
+        DB._get_instance().commit()
+        return principle
+
+    @staticmethod
+    def get_principle(auth_id, auth_role, realm):
+        return DB._get_instance().query(Principle).filter(
+            Principle.auth_id == auth_id, Principle.auth_role == auth_role, Principle.realm == realm).first()
+
+    @staticmethod
+    def get_local_principle():
+        return DB._get_instance().query(Principle).filter(Principle.access == 'local').first()
+
+    @staticmethod
+    def refresh_local_principle(key_pair, auth_role, realm):
+        item = DB._get_instance().query(Principle).filter(Principle.access == 'local')
+        if item:
+            DB._get_instance().delete(item)
+            DB._get_instance().commit()
+        return DB.add_principle(auth_id=key_pair[1], auth_role=auth_role, realm=realm, access='local',
+                                private_key=key_pair[0])
+
+    @staticmethod
+    def toggle_discovery(enabled):
+        DB.put_boolean("discovery", enabled)
+
+    @staticmethod
+    def is_discovery_enabled():
+        return DB.get_boolean("discovery", True)

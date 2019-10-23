@@ -32,10 +32,6 @@ def generate_otp():
     return component
 
 
-def toggle_discovery(enabled):
-    DB.put_boolean("discovery", enabled)
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DeskConn command line utility')
     parser.add_argument('action',
@@ -49,8 +45,8 @@ if __name__ == '__main__':
     if args.action == 'pair':
         run([generate_otp()], None)
     elif args.action == 'enable-discovery':
-        toggle_discovery(True)
+        DB.toggle_discovery(True)
     elif args.action == 'disable-discovery':
-        toggle_discovery(False)
+        DB.toggle_discovery(False)
     else:
         print("Not yet implemented!")

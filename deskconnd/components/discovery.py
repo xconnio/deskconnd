@@ -28,12 +28,12 @@ class ServiceDiscoverySession(wamp.ApplicationSession):
             name=f"{socket.gethostname()}._{SERVICE_IDENTIFIER}._tcp.local.",
             addresses=[socket.inet_aton(address)],
             port=int(os.environ.get("DESKCONN_PORT")),
-            properties={"realm": "deskconn", "uid": self.get_system_uid()}
+            properties={"realm": self.realm, "uid": self.get_system_uid()}
         )
 
     def initialize_service(self, address):
         zconf = zeroconf.Zeroconf([address])
-        zconf.register_service(self.initialize_service_info(address), 20, True)
+        zconf.register_service(self.initialize_service_info(address), 10, True)
         self.services.update({address: zconf})
 
     def initialize_services(self):
@@ -41,22 +41,31 @@ class ServiceDiscoverySession(wamp.ApplicationSession):
             self.initialize_service(address)
 
     def close_services(self):
+        if len(self.services) == 0:
+            return
+
         for service in self.services.values():
             reactor.callInThread(service.close)
         self.services.clear()
 
     async def onJoin(self, details):
         self.log.info('session joined: {}'.format(details))
-        if DB.get_boolean("discovery", True):
+        self.looping_call = LoopingCall(self.sync_services)
+        self.looping_call.start(10, False)
+
+        if DB.is_discovery_enabled():
             reactor.callInThread(self.initialize_services)
-            self.looping_call = LoopingCall(self.sync_services)
-            self.looping_call.start(5, False)
 
     def onLeave(self, details):
         self.log.info('session left: {}'.format(details))
+        self.looping_call.stop()
         self.close_services()
 
     def sync_services(self):
+        if not DB.is_discovery_enabled():
+            self.close_services()
+            return
+
         addresses = zeroconf.get_all_addresses()
         to_unregister = [address for address in self.services.keys() if address not in addresses]
         to_register = [address for address in addresses if address not in self.services.keys()]
