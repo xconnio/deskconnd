@@ -17,7 +17,30 @@
 #
 
 import os
+from pathlib import Path
+
+import appdirs
+
+APP_NAME = "deskconnd"
+APP_AUTHOR = "org.deskconn"
 
 
 def is_snap():
-    return os.environ.get("SNAP_NAME") == "deskconnd"
+    return os.environ.get("SNAP_NAME") == APP_NAME
+
+
+def get_state_directory():
+    if is_snap():
+        root = os.path.expandvars('$SNAP_COMMON')
+    else:
+        root = appdirs.user_state_dir(APP_NAME, APP_AUTHOR)
+
+    state_dir = os.path.join(root, 'state')
+    Path(state_dir).mkdir(parents=True, exist_ok=True)
+    return state_dir
+
+
+def get_data_directory():
+    if is_snap():
+        return os.path.expandvars('$SNAP_COMMON')
+    return appdirs.user_data_dir(APP_NAME, APP_AUTHOR)

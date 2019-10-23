@@ -18,6 +18,7 @@
 #
 
 import argparse
+import sys
 
 from autobahn.twisted.component import Component, run
 from autobahn.wamp.auth import AuthCryptoSign
@@ -25,6 +26,9 @@ from autobahn.wamp.auth import AuthCryptoSign
 from deskconnd.database.controller import DB
 
 principle = DB.get_local_principle()
+if not principle:
+    print("The backend is likely not running, please ensure its up.")
+    sys.exit(1)
 component = Component(transports="ws://localhost:5020/ws", realm=principle.realm,
                       authentication={"cryptosign": AuthCryptoSign(authid=principle.auth_id,
                                                                    authrole=principle.auth_role,
@@ -66,19 +70,18 @@ def toggle_discovery(enabled):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='DeskConn command line utility')
-    parser.add_argument('action',
-                        metavar='ACTION',
-                        type=str,
-                        help='DeskConn CLI interface, accepts any of these: pair, enable-discovery, '
-                             'disable-discovery',
-                        choices=['pair', 'enable-discovery', 'disable-discovery'])
-
+    commands = parser.add_subparsers(title='Available commands', dest='command')
+    discovery = commands.add_parser("discovery")
+    discovery.add_argument('status', type=str, choices=('enable', 'disable'))
+    commands.add_parser('pair')
     args = parser.parse_args()
-    if args.action == 'pair':
+
+    if args.command == 'pair':
         generate_otp()
-    elif args.action == 'enable-discovery':
-        DB.toggle_discovery(True)
-    elif args.action == 'disable-discovery':
-        DB.toggle_discovery(False)
+    elif args.command == 'discovery':
+        if args.status == 'enable':
+            toggle_discovery(True)
+        else:
+            toggle_discovery(False)
     else:
-        print("Not yet implemented!")
+        parser.print_help()

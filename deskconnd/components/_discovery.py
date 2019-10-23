@@ -81,10 +81,10 @@ class Discovery:
     def start(self):
         if self.running:
             return
+        self.running = True
         self._looping_call = LoopingCall(self._sync_services)
         self._looping_call.start(10, False)
         reactor.callInThread(self._init_services)
-        self.running = True
 
     def stop(self):
         if not self.running:

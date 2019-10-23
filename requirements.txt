@@ -1,4 +1,6 @@
+appdirs
 crossbar
-autobahn[twisted,serialization]
-zeroconf
 sqlalchemy
+zeroconf
+
+autobahn[twisted,serialization]

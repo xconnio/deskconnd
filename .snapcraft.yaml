@@ -33,16 +33,18 @@ parts:
     plugin: dump
     source: .
     prime:
-      - scripts/cli.py
+      - cli.py
       - scripts/daemon.sh
       - .crossbar.yaml
     stage:
+      - cli.py
+      - scripts/daemon.sh
       - .crossbar.yaml
-      - scripts/
   deskconn:
     plugin: python
     source: .
     python-packages:
+      - appdirs
       - sqlalchemy
       - zeroconf
 
@@ -55,7 +57,7 @@ apps:
       - network
       - network-bind
   deskconnctl:
-    command: scripts/cli.py
+    command: cli.py
     plugs:
       - network
       - network-bind

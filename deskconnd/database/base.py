@@ -17,20 +17,20 @@
 #
 
 import os
+from pathlib import Path
 
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-from deskconnd.environment import is_snap
+from deskconnd.environment import get_data_directory
 
 DB_FILE = "deskconn.db"
 
 
 def get_db_path():
-    if is_snap():
-        return os.path.join(os.path.expandvars("$SNAP_COMMON"), DB_FILE)
-    return os.path.join(os.path.expandvars("$HOME"), DB_FILE)
+    Path(get_data_directory()).mkdir(parents=True, exist_ok=True)
+    return os.path.join(get_data_directory(), DB_FILE)
 
 
 engine = create_engine(f'sqlite:///{get_db_path()}')
