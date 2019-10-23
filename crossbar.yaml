@@ -3,6 +3,8 @@ workers:
 - type: router
   realms:
   - name: deskconn
+    options:
+      enable_meta_api: false
     roles:
     - name: deskconn
       permissions:
@@ -16,7 +18,7 @@ workers:
           disclose:
             caller: false
             publisher: false
-          cache: true
+          cache: false
   components:
   - type: class
     realm: deskconn
