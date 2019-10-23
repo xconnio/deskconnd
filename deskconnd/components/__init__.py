@@ -1,8 +1,6 @@
-from deskconnd.components.authentication import AuthSession
-from deskconnd.components.discovery import ServiceDiscoverySession
+from deskconnd.components.management import ManagementSession
 
 
 __all__ = (
-    'AuthSession',
-    'ServiceDiscoverySession'
+    'ManagementSession'
 )

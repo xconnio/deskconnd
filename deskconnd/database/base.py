@@ -6,7 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from deskconnd.environment import is_snap
 
-DB_FILE = "database.sqlite"
+DB_FILE = "deskconn.db"
 
 
 def get_db_path():

@@ -23,11 +23,7 @@ workers:
   - type: class
     realm: deskconn
     role: deskconn
-    classname: deskconnd.components.AuthSession
-  - type: class
-    realm: deskconn
-    role: deskconn
-    classname: deskconnd.components.ServiceDiscoverySession
+    classname: deskconnd.components.ManagementSession
   transports:
   - type: websocket
     endpoint:

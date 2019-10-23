@@ -1,3 +1,5 @@
+import uuid
+
 from deskconnd.database.schema import Principle, StrKeyStrValue
 from deskconnd.database.base import Session
 
@@ -41,6 +43,19 @@ class DB:
         if value.lower() == 'true':
             return True
         return False
+
+    @staticmethod
+    def is_first_run():
+        return DB.get_boolean("first_run", True)
+
+    @staticmethod
+    def init_config():
+        if DB.is_first_run():
+            uid = str(uuid.uuid4())
+            DB.put_string("uid", uid)
+            DB.put_boolean("first_run", False)
+            return uid
+        return DB.get_string("uid")
 
     @staticmethod
     def add_principle(auth_id, auth_role, realm, access='remote', private_key=None):
