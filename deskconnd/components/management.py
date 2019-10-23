@@ -17,7 +17,6 @@
 #
 
 from autobahn.twisted.wamp import ApplicationSession
-from autobahn.wamp import ApplicationError
 from autobahn.wamp.cryptobox import KeyRing
 
 from deskconnd.database.controller import DB
@@ -41,7 +40,8 @@ class ManagementSession(ApplicationSession):
         self.log.info('realm joined: {}'.format(details.realm))
         await self.register(self._auth.authenticate, 'org.deskconn.deskconnd.authenticate')
         await self.register(self._auth.generate_otp, "org.deskconn.deskconnd.pair")
-        await self.register(self._toggle_discovery, 'org.deskconn.deskconnd.toggle_discovery')
+        await self.register(self._enable_discovery, 'org.deskconn.deskconnd.discovery.enable')
+        await self.register(self._disable_discovery, 'org.deskconn.deskconnd.discovery.disable')
 
         if DB.is_discovery_enabled():
             self._discovery.start()
@@ -49,11 +49,10 @@ class ManagementSession(ApplicationSession):
     def onLeave(self, details):
         self._discovery.stop()
 
-    async def _toggle_discovery(self, enabled):
-        if type(enabled) != bool:
-            raise ApplicationError("enabled must be a boolean")
+    async def _enable_discovery(self):
+        DB.toggle_discovery(True)
+        self._discovery.start()
 
-        if enabled:
-            self._discovery.start()
-        else:
-            self._discovery.stop()
+    async def _disable_discovery(self):
+        DB.toggle_discovery(False)
+        self._discovery.stop()

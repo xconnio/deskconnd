@@ -19,7 +19,17 @@
 
 import argparse
 
+from autobahn.twisted.component import Component, run
+from autobahn.wamp.auth import AuthCryptoSign
+
 from deskconnd.database.controller import DB
+
+principle = DB.get_local_principle()
+component = Component(transports="ws://localhost:5020/ws", realm=principle.realm,
+                      authentication={"cryptosign": AuthCryptoSign(authid=principle.auth_id,
+                                                                   authrole=principle.auth_role,
+                                                                   privkey=principle.private_key,
+                                                                   authextra={})})
 
 
 def _print_qr_code(text):
@@ -30,21 +40,25 @@ def _print_qr_code(text):
 
 
 def generate_otp():
-    from autobahn.twisted.component import Component, run
-    from autobahn.wamp.auth import AuthCryptoSign
-
-    principle = DB.get_local_principle()
-    component = Component(transports="ws://localhost:5020/ws", realm=principle.realm,
-                          authentication={"cryptosign": AuthCryptoSign(authid=principle.auth_id,
-                                                                       authrole=principle.auth_role,
-                                                                       privkey=principle.private_key,
-                                                                       authextra={})})
-
     @component.on_join
     async def joined(session, _details):
         res = await session.call("org.deskconn.deskconnd.pair")
         _print_qr_code(res)
         print("Scan the QR Code or manually pair with: {}\n".format(res))
+        session.leave()
+
+    run([component], None)
+
+
+def toggle_discovery(enabled):
+    @component.on_join
+    async def joined(session, _details):
+        if enabled:
+            procedure = "org.deskconn.deskconnd.discovery.enable"
+        else:
+            procedure = "org.deskconn.deskconnd.discovery.disable"
+
+        await session.call(procedure)
         session.leave()
 
     run([component], None)

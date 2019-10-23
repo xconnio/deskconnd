@@ -4,7 +4,7 @@ summary: Secure, cross-platform IPC on the network
 description: |
   Secure, cross-platform IPC on the network
 
-  * Communication over WebSockets/WAMP
+  * Communication over WAMP
   * Supports multiple programming languages
   * End-to-end encryption by default
 

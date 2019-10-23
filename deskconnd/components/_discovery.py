@@ -33,6 +33,7 @@ class Discovery:
         self._desc = {"realm": realm, "uid": uid}
         self._services = {}
         self._looping_call = None
+        self.running = False
 
     def _init_service_info(self, address):
         return zeroconf.ServiceInfo(
@@ -78,10 +79,16 @@ class Discovery:
         reactor.callInThread(sync)
 
     def start(self):
+        if self.running:
+            return
         self._looping_call = LoopingCall(self._sync_services)
         self._looping_call.start(10, False)
         reactor.callInThread(self._init_services)
+        self.running = True
 
     def stop(self):
+        if not self.running:
+            return
         self._looping_call.stop()
         self._close_services()
+        self.running = False
