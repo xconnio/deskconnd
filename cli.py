@@ -2,19 +2,20 @@
 
 import argparse
 
-from autobahn.twisted.component import Component, run
-from autobahn.wamp.auth import AuthCryptoSign
-import pyqrcode
-
 from deskconnd.database.controller import DB
 
 
 def _print_qr_code(text):
+    import pyqrcode
+
     qr = pyqrcode.create(text, mode='numeric')
     print(qr.terminal(quiet_zone=1))
 
 
 def generate_otp():
+    from autobahn.twisted.component import Component, run
+    from autobahn.wamp.auth import AuthCryptoSign
+
     principle = DB.get_local_principle()
     component = Component(transports="ws://localhost:5020/ws", realm=principle.realm,
                           authentication={"cryptosign": AuthCryptoSign(authid=principle.auth_id,
@@ -29,7 +30,7 @@ def generate_otp():
         print("Scan the QR Code or manually pair with: {}\n".format(res))
         session.leave()
 
-    return component
+    run([component], None)
 
 
 if __name__ == '__main__':
@@ -43,7 +44,7 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     if args.action == 'pair':
-        run([generate_otp()], None)
+        generate_otp()
     elif args.action == 'enable-discovery':
         DB.toggle_discovery(True)
     elif args.action == 'disable-discovery':

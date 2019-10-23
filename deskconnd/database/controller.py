@@ -61,7 +61,7 @@ class DB:
 
     @staticmethod
     def refresh_local_principle(key_pair, auth_role, realm):
-        item = DB._get_instance().query(Principle).filter(Principle.access == 'local')
+        item = DB._get_instance().query(Principle).filter(Principle.access == 'local').first()
         if item:
             DB._get_instance().delete(item)
             DB._get_instance().commit()
