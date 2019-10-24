@@ -25,7 +25,7 @@ architectures:
     run-on: armhf
 
 environment:
-  PYTHONPATH: $PYTHONPATH:$SNAP_COMMON/crossbar-runtime-dir/lib/python3.6/site-packages
+  PYTHONPATH: $PYTHONPATH:$SNAP_COMMON/crossbar-runtime-dir/lib/python3.6/site-packages:$SNAP/packages
   PATH: $PATH:$SNAP_COMMON/crossbar-runtime-dir/bin
 
 parts:
@@ -41,12 +41,17 @@ parts:
       - scripts/daemon.sh
       - .crossbar.yaml
   deskconn:
-    plugin: python
+    plugin: nil
     source: .
-    python-packages:
-      - appdirs
-      - sqlalchemy
-      - zeroconf
+    override-build: |
+      snapcraftctl build
+      rm -rf packages
+      mkdir packages
+      /usr/bin/python3 -m pip install -t packages appdirs sqlalchemy zeroconf
+      /usr/bin/python3 -m pip install -t packages .
+      cp -r packages ${SNAPCRAFT_PART_INSTALL}
+    build-packages:
+      - python3-pip
 
 apps:
   deskconnd:
