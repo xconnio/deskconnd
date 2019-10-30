@@ -28,7 +28,7 @@ architectures:
     run-on: arm64
 
 environment:
-  PYTHONPYCACHEPREFIX: $SNAP_DATA/pycache
+  PYTHONPYCACHEPREFIX: $SNAP_COMMON/pycache
   PYTHONPATH: $PYTHONPATH:$SNAP/packages
 
 parts:
@@ -76,7 +76,11 @@ apps:
       - network-bind
 
 slots:
+  runtime:
+    interface: content
+    read:
+      - $SNAP
   state:
     interface: content
     read:
-      - $SNAP_COMMON/state
+      - $SNAP_COMMON
