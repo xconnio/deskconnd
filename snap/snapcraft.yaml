@@ -24,11 +24,31 @@ architectures:
   - build-on: armhf
     run-on: armhf
 
+  - build-on: arm64
+    run-on: arm64
+
 environment:
-  PYTHONPATH: $PYTHONPATH:$SNAP_COMMON/crossbar-runtime-dir/crossbar:$SNAP/packages
-  PATH: $PATH:$SNAP_COMMON/crossbar-runtime-dir/crossbar/bin:$SNAP_COMMON/crossbar-runtime-dir/usr/bin
+  PYTHONPYCACHEPREFIX: $SNAP_DATA/pycache
+  PYTHONPATH: $PYTHONPATH:$SNAP/packages
 
 parts:
+  deskconn:
+    plugin: py38
+    source: .
+    stage-packages:
+      # Required by Crossbar
+      - libsnappy1v5
+      - libunwind8
+    build-packages:
+      - build-essential
+      - gcc
+      - libffi-dev
+      - libssl-dev
+      - make
+      - libbz2-dev
+      # Required by Crossbar
+      - libsnappy-dev
+      - libunwind-dev
   launchers:
     plugin: dump
     source: .
@@ -40,21 +60,6 @@ parts:
       - cli.py
       - scripts/daemon.sh
       - .crossbar.yaml
-  deskconn:
-    plugin: nil
-    source: .
-    override-build: |
-      snapcraftctl build
-      add-apt-repository ppa:deadsnakes/ppa -y -u
-      apt install python3.8 python3.8-venv python3.8-dev -y
-      PY=/usr/bin/python3.8
-      rm -rf packages
-      mkdir packages
-      $PY -m ensurepip
-      $PY -m pip install -t packages .
-      cp -r packages ${SNAPCRAFT_PART_INSTALL}
-    build-packages:
-      - software-properties-common
 
 apps:
   deskconnd:
@@ -69,10 +74,3 @@ apps:
     plugs:
       - network
       - network-bind
-
-plugs:
-  crossbar-runtime-dir:
-    content: executables
-    default-provider: crossbar:runtime-dir
-    interface: content
-    target: $SNAP_COMMON/crossbar-runtime-dir
