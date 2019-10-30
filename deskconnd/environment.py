@@ -40,6 +40,9 @@ def get_state_directory():
     return state_dir
 
 
+READY_PATH = os.path.join(get_state_directory(), 'ready')
+
+
 def get_data_directory():
     if is_snap():
         return os.path.expandvars('$SNAP_COMMON')

@@ -26,7 +26,7 @@ from deskconnd.database.controller import DB
 from deskconnd.components._discovery import Discovery
 from deskconnd.components._authentication import Authentication
 
-from deskconnd.environment import get_state_directory
+from deskconnd.environment import READY_PATH
 
 
 class ManagementSession(ApplicationSession):
@@ -48,10 +48,11 @@ class ManagementSession(ApplicationSession):
         await self.register(self._auth.generate_otp, 'org.deskconn.deskconnd.pair')
         await self.register(self._enable_discovery, 'org.deskconn.deskconnd.discovery.enable')
         await self.register(self._disable_discovery, 'org.deskconn.deskconnd.discovery.disable')
-        self.on_started()
+        Path(READY_PATH).touch()
 
     def onLeave(self, details):
-        self.on_stopped()
+        if os.path.exists(self._ready_file):
+            Path(READY_PATH).unlink()
         self._discovery.stop()
         self.disconnect()
 
@@ -62,14 +63,3 @@ class ManagementSession(ApplicationSession):
     async def _disable_discovery(self):
         DB.toggle_discovery(False)
         self._discovery.stop()
-
-    @staticmethod
-    def on_started():
-        Path(os.path.join(get_state_directory(), 'ready')).touch()
-
-    @staticmethod
-    def on_stopped():
-        directory = get_state_directory()
-        ready_file = os.path.join(directory, 'ready')
-        if os.path.exists(directory) and os.path.exists(ready_file):
-            Path(ready_file).unlink()

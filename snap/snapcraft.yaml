@@ -74,3 +74,9 @@ apps:
     plugs:
       - network
       - network-bind
+
+slots:
+  state:
+    interface: content
+    read:
+      - $SNAP_COMMON/state
