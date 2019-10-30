@@ -4,7 +4,7 @@ SHOULD_PRINT=true
 
 while true
 do
-  if [ -f "$SNAP_COMMON"/crossbar-runtime-dir/bin/crossbar ]; then
+  if [ -f "$SNAP_COMMON"/crossbar-runtime-dir/crossbar/bin/crossbar ]; then
     echo "Crossbar found, now starting..."
     break
   else
@@ -17,4 +17,4 @@ do
 done
 
 export DESKCONN_PORT=5020
-crossbar start --cbdir "$SNAP_USER_DATA" --config "$SNAP"/.crossbar.yaml
+python3.8 -u "$(which crossbar)" start --cbdir "$SNAP_USER_DATA" --config "$SNAP"/.crossbar.yaml

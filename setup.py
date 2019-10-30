@@ -37,4 +37,5 @@ setup(
     description='Expose your desktop functionality over the network.',
     download_url='https://github.com/deskconn/deskconnd/tarball/{}'.format(VERSION),
     keywords=['IPC', 'python'],
+    install_requires=['appdirs', 'sqlalchemy', 'zeroconf']
 )

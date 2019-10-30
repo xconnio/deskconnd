@@ -25,8 +25,8 @@ architectures:
     run-on: armhf
 
 environment:
-  PYTHONPATH: $PYTHONPATH:$SNAP_COMMON/crossbar-runtime-dir/lib/python3.6/site-packages:$SNAP/packages
-  PATH: $PATH:$SNAP_COMMON/crossbar-runtime-dir/bin
+  PYTHONPATH: $PYTHONPATH:$SNAP_COMMON/crossbar-runtime-dir/crossbar:$SNAP/packages
+  PATH: $PATH:$SNAP_COMMON/crossbar-runtime-dir/crossbar/bin:$SNAP_COMMON/crossbar-runtime-dir/usr/bin
 
 parts:
   launchers:
@@ -45,14 +45,16 @@ parts:
     source: .
     override-build: |
       snapcraftctl build
+      add-apt-repository ppa:deadsnakes/ppa -y -u
+      apt install python3.8 python3.8-venv python3.8-dev -y
+      PY=/usr/bin/python3.8
       rm -rf packages
       mkdir packages
-      /usr/bin/python3 -m pip install -t packages appdirs sqlalchemy zeroconf
-      /usr/bin/python3 -m pip install -t packages .
+      $PY -m ensurepip
+      $PY -m pip install -t packages .
       cp -r packages ${SNAPCRAFT_PART_INSTALL}
     build-packages:
-      - python3-pip
-      - python3-setuptools
+      - software-properties-common
 
 apps:
   deskconnd:
