@@ -78,9 +78,11 @@ apps:
 slots:
   runtime:
     interface: content
+    content: runtime
     read:
       - $SNAP
   state:
     interface: content
+    content: state
     read:
       - $SNAP_COMMON/state
