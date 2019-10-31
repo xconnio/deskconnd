@@ -83,4 +83,4 @@ slots:
   state:
     interface: content
     read:
-      - $SNAP_COMMON
+      - $SNAP_COMMON/state

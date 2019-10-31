@@ -45,6 +45,6 @@ READY_PATH = os.path.join(get_state_directory(), 'ready')
 
 def get_data_directory():
     if is_snap():
-        return os.path.join(os.path.expandvars('$SNAP_COMMON'), 'database')
+        return os.path.join(os.path.expandvars('$SNAP_COMMON'), 'state')
     else:
         return appdirs.user_data_dir(APP_NAME, APP_AUTHOR)
