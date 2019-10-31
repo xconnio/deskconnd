@@ -26,25 +26,21 @@ APP_AUTHOR = "org.deskconn"
 
 
 def is_snap():
-    return os.environ.get("SNAP_NAME") == APP_NAME
+    return os.environ.get("SNAP_NAME") in [APP_NAME, 'deskconn', 'piconn']
 
 
-def get_state_directory():
+def get_data_directory():
     if is_snap():
         root = os.path.expandvars('$SNAP_COMMON')
     else:
         root = appdirs.user_state_dir(APP_NAME, APP_AUTHOR)
+    return os.path.join(root, 'state')
 
-    state_dir = os.path.join(root, 'state')
+
+def get_state_directory():
+    state_dir = get_data_directory()
     Path(state_dir).mkdir(parents=True, exist_ok=True)
     return state_dir
 
 
 READY_PATH = os.path.join(get_state_directory(), 'ready')
-
-
-def get_data_directory():
-    if is_snap():
-        return os.path.join(os.path.expandvars('$SNAP_COMMON'), 'state')
-    else:
-        return appdirs.user_data_dir(APP_NAME, APP_AUTHOR)
