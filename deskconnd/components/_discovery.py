@@ -27,6 +27,9 @@ from deskconnd.database.controller import DB
 
 SERVICE_IDENTIFIER = 'deskconn'
 
+ONE_MINUTE = 60
+ONE_HOUR = ONE_MINUTE * 60
+
 
 class Discovery:
     def __init__(self, realm, uid):
@@ -41,13 +44,17 @@ class Discovery:
             name=f"{socket.gethostname()}._{SERVICE_IDENTIFIER}._tcp.local.",
             addresses=[socket.inet_aton(address)],
             port=int(os.environ.get("DESKCONN_PORT")),
-            properties=self._desc
+            properties=self._desc,
+            host_ttl=ONE_HOUR * 24
         )
 
     def _init_service(self, address):
-        zconf = zeroconf.Zeroconf([address])
-        zconf.register_service(self._init_service_info(address), 10, True)
-        self._services.update({address: zconf})
+        try:
+            zconf = zeroconf.Zeroconf([address])
+            zconf.register_service(self._init_service_info(address), allow_name_change=False)
+            self._services.update({address: zconf})
+        except zeroconf.NonUniqueNameException:
+            pass
 
     def _init_services(self):
         for address in zeroconf.get_all_addresses():

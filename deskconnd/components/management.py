@@ -51,7 +51,7 @@ class ManagementSession(ApplicationSession):
         Path(READY_PATH).touch()
 
     def onLeave(self, details):
-        if os.path.exists(self._ready_file):
+        if os.path.exists(READY_PATH):
             Path(READY_PATH).unlink()
         self._discovery.stop()
         self.disconnect()
