@@ -34,7 +34,7 @@ setup(
     license='GNU GPL Version 3',
     author='Omer Akram',
     author_email='om26er@gmail.com',
-    description='Expose your desktop functionality over the network.',
+    description='Secure, cross-platform IPC on the network.',
     download_url='https://github.com/deskconn/deskconnd/tarball/{}'.format(VERSION),
     keywords=['IPC', 'python'],
     install_requires=['crossbar', 'appdirs', 'sqlalchemy', 'zeroconf']
