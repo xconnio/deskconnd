@@ -61,7 +61,7 @@ class PythonPlugin(snapcraft.BasePlugin):
         self._run('rm -rf {}/numpy'.format(target))
 
         for filename in pathlib.Path(target).rglob('*.so'):
-            self._run("strip -d {}".format(filename))
+            self._run("strip -s {}".format(filename))
 
     @property
     def stage_packages(self):
