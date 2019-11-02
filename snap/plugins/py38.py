@@ -1,6 +1,6 @@
 import os
+import pathlib
 import shlex
-import shutil
 import subprocess
 
 import snapcraft
@@ -36,6 +36,7 @@ class PythonPlugin(snapcraft.BasePlugin):
 
     def build(self):
         super().build()
+        self._run("strip --help")
         self._ensure_py38()
         self._run('ln -sf python3.8 python3', cwd=os.path.join(self.installdir, 'usr/bin'))
         self._run('ln -sf python3.8 python', cwd=os.path.join(self.installdir, 'usr/bin'))
@@ -58,6 +59,9 @@ class PythonPlugin(snapcraft.BasePlugin):
             self._run('/usr/bin/python3.8 -m pip install --no-compile -t {} {}'.format(target, packages))
 
         self._run('rm -rf {}/numpy'.format(target))
+
+        for filename in pathlib.Path(target).rglob('*.so'):
+            self._run("strip -d {}".format(filename))
 
     @property
     def stage_packages(self):
