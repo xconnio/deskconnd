@@ -51,15 +51,13 @@ class PythonPlugin(snapcraft.BasePlugin):
         self._run('/usr/bin/python3.8 -m ensurepip')
 
         if self.options.source:
-            self._run('/usr/bin/python3.8 -m pip install -t {} .'.format(target))
+            self._run('/usr/bin/python3.8 -m pip install --no-compile -t {} .'.format(target))
 
         if self.options.python_packages:
             packages = ' '.join(self.options.python_packages)
-            self._run('/usr/bin/python3.8 -m pip install -t {} {}'.format(target, packages))
+            self._run('/usr/bin/python3.8 -m pip install --no-compile -t {} {}'.format(target, packages))
 
-        for root, _, _ in os.walk(self.installdir, topdown=False):
-            if root.endswith('__pycache__') and os.path.exists(root):
-                shutil.rmtree(root)
+        self._run('rm -rf {}/numpy'.format(target))
 
     @property
     def stage_packages(self):
