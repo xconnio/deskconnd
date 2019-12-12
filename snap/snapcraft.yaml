@@ -28,38 +28,21 @@ architectures:
     run-on: arm64
 
 environment:
-  PYTHONPYCACHEPREFIX: $SNAP_DATA/pycache
-  PATH: $PATH:$SNAP/usr/bin:$SNAP/bin
-  PYTHONPATH: $PYTHONPATH:$SNAP/lib/python3.8/site-packages
+  PATH: $PATH:/snap/core18/current/usr/bin:$SNAP/bin
+  PYTHONPATH: $PYTHONPATH:$SNAP/lib/python3.6/site-packages
 
 parts:
-  py38:
-    plugin: nil
-    stage-packages:
-      - python3.8
-    build-packages:
-      - wget
-      - python3.8
-      - python3.8-dev
-      - python3.8-venv
-      - python3.8-distutils
-    override-build: |
-      snapcraftctl build
-      wget -O - https://bootstrap.pypa.io/get-pip.py | /usr/bin/python3.8 -u
   deskconn:
     plugin: nil
     source: .
-    after:
-      - py38
     override-build: |
       snapcraftctl build
-      # Build and install Crossbar
-      export MAKEFLAGS="-j$(nproc)"
-      /usr/bin/python3.8 -m pip install --ignore-installed -U --no-compile --prefix $SNAPCRAFT_PART_INSTALL .
-      rm -r $SNAPCRAFT_PART_INSTALL/lib/python3.8/site-packages/numpy
-      find $SNAPCRAFT_PART_INSTALL -type f -name *.so -exec strip -s {} \;
+      python3 -O -m pip install --ignore-installed -U --no-compile --prefix $SNAPCRAFT_PART_INSTALL .
+      rm -r $SNAPCRAFT_PART_INSTALL/lib/python3.6/site-packages/numpy
+      python3 -O -m compileall -b -x .*\.syntaxerror.py$ $SNAPCRAFT_PART_INSTALL
+      find $SNAPCRAFT_PART_INSTALL -type f -name "*.py" -exec rm {} \;
+      find $SNAPCRAFT_PART_INSTALL -type f -name "*.so" -exec strip -s {} \;
     stage-packages:
-      # Required by Crossbar
       - libsnappy1v5
       - libunwind8
     build-packages:
@@ -71,6 +54,7 @@ parts:
       - libbz2-dev
       - libsnappy-dev
       - libunwind-dev
+      - python3-pip
   launchers:
     plugin: dump
     source: .
