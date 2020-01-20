@@ -19,6 +19,7 @@
 import os
 
 from setuptools import setup
+from pip.req import parse_requirements
 
 
 # allow setup.py to be run from any path
@@ -37,5 +38,5 @@ setup(
     description='Secure, cross-platform IPC on the network.',
     download_url='https://github.com/deskconn/deskconnd/tarball/{}'.format(VERSION),
     keywords=['IPC', 'python'],
-    install_requires=['crossbar', 'appdirs', 'sqlalchemy', 'zeroconf']
+    install_requires=[str(ir.req) for ir in parse_requirements('requirements.txt', session=False)]
 )

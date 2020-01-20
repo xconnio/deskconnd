@@ -1,7 +1,6 @@
 appdirs
 sqlalchemy
 zeroconf
-
 crossbar
-autobahn[twisted,serialization]
+autobahn[serialization]
 qrcode

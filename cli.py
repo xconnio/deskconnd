@@ -18,7 +18,6 @@
 #
 
 import argparse
-import os
 import sys
 
 from autobahn.asyncio.component import Component, run
@@ -40,21 +39,15 @@ component = Component(transports="ws://localhost:5020/ws", realm=principle.realm
 def _print_qr_code(text):
     qr = qrcode.QRCode()
     qr.add_data(text)
-    if os.isatty(sys.stdout.fileno()):
-        qr.print_ascii(tty=True)
-        return True
-    return False
+    qr.print_tty()
 
 
 def generate_otp():
     @component.on_join
     async def joined(session, _details):
         res = await session.call("org.deskconn.deskconnd.pair")
-        printed = _print_qr_code(res)
-        if printed:
-            print("Scan the QR Code or manually pair with: {}\n".format(res))
-        else:
-            print("Cannot print qrcode, manually pair with: {}\n".format(res))
+        _print_qr_code(res)
+        print("\nScan the QR Code or manually pair with: {}\n".format(res))
         session.leave()
 
     run(component, log_level='warn')
