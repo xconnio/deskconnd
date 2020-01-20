@@ -4,4 +4,4 @@ zeroconf
 
 crossbar
 autobahn[twisted,serialization]
-pyqrcode
+qrcode

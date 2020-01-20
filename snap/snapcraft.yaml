@@ -37,7 +37,7 @@ parts:
     source: .
     override-build: |
       snapcraftctl build
-      python3 -O -m pip install --ignore-installed -U --no-compile --prefix $SNAPCRAFT_PART_INSTALL .
+      python3 -O -m pip install --no-compile --prefix $SNAPCRAFT_PART_INSTALL .
       rm -r $SNAPCRAFT_PART_INSTALL/lib/python3.6/site-packages/numpy
       python3 -O -m compileall -b -x .*\.syntaxerror.py$ $SNAPCRAFT_PART_INSTALL
       find $SNAPCRAFT_PART_INSTALL -type f -name "*.py" -exec rm {} \;

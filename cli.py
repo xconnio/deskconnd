@@ -18,10 +18,12 @@
 #
 
 import argparse
+import os
 import sys
 
-from autobahn.twisted.component import Component, run
+from autobahn.asyncio.component import Component, run
 from autobahn.wamp.auth import AuthCryptoSign
+import qrcode
 
 from deskconnd.database.controller import DB
 
@@ -32,26 +34,30 @@ if not principle:
 component = Component(transports="ws://localhost:5020/ws", realm=principle.realm,
                       authentication={"cryptosign": AuthCryptoSign(authid=principle.auth_id,
                                                                    authrole=principle.auth_role,
-                                                                   privkey=principle.private_key,
-                                                                   authextra={})})
+                                                                   privkey=principle.private_key)})
 
 
 def _print_qr_code(text):
-    import pyqrcode
-
-    qr = pyqrcode.create(text, mode='numeric')
-    print(qr.terminal(quiet_zone=1))
+    qr = qrcode.QRCode()
+    qr.add_data(text)
+    if os.isatty(sys.stdout.fileno()):
+        qr.print_ascii(tty=True)
+        return True
+    return False
 
 
 def generate_otp():
     @component.on_join
     async def joined(session, _details):
         res = await session.call("org.deskconn.deskconnd.pair")
-        _print_qr_code(res)
-        print("Scan the QR Code or manually pair with: {}\n".format(res))
+        printed = _print_qr_code(res)
+        if printed:
+            print("Scan the QR Code or manually pair with: {}\n".format(res))
+        else:
+            print("Cannot print qrcode, manually pair with: {}\n".format(res))
         session.leave()
 
-    run([component], None)
+    run(component, log_level='warn')
 
 
 def toggle_discovery(enabled):
@@ -65,7 +71,7 @@ def toggle_discovery(enabled):
         await session.call(procedure)
         session.leave()
 
-    run([component], None)
+    run(component, log_level='warn')
 
 
 if __name__ == '__main__':
