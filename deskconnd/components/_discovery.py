@@ -16,11 +16,11 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
 
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import os
 import socket
 
-from twisted.internet.task import LoopingCall
-from twisted.internet import reactor
 import zeroconf
 
 from deskconnd.database.controller import DB
@@ -32,10 +32,9 @@ ONE_HOUR = ONE_MINUTE * 60
 
 
 class Discovery:
-    def __init__(self, realm, uid):
-        self._desc = {"realm": realm, "uid": uid}
+    def __init__(self, **kwargs):
+        self._desc = kwargs
         self._services = {}
-        self._looping_call = None
         self.running = False
 
     def _init_service_info(self, address):
@@ -43,7 +42,7 @@ class Discovery:
             type_=f"_{SERVICE_IDENTIFIER}._tcp.local.",
             name=f"{socket.gethostname()}._{SERVICE_IDENTIFIER}._tcp.local.",
             addresses=[socket.inet_aton(address)],
-            port=int(os.environ.get("DESKCONN_PORT")),
+            port=int(os.environ.get("DESKCONN_PORT", 5020)),
             properties=self._desc,
             host_ttl=ONE_HOUR * 24
         )
@@ -56,46 +55,48 @@ class Discovery:
         except zeroconf.NonUniqueNameException:
             pass
 
-    def _init_services(self):
+    async def _init_services(self):
+        loop = asyncio.get_running_loop()
+        futures = []
+        executor = ThreadPoolExecutor()
         for address in zeroconf.get_all_addresses():
-            self._init_service(address)
+            futures.append(asyncio.ensure_future(loop.run_in_executor(executor, self._init_service, address)))
+        await asyncio.gather(*futures)
 
-    def _close_services(self):
+    async def _close_services(self):
         if len(self._services) == 0:
             return
 
         for service in self._services.values():
-            reactor.callInThread(service.close)
+            service.close()
         self._services.clear()
 
-    def _sync_services(self):
-        if not DB.is_discovery_enabled():
-            self._close_services()
-            return
+    async def _sync_services(self):
+        while self.running:
+            if not DB.is_discovery_enabled():
+                await self._close_services()
+                return
 
-        addresses = zeroconf.get_all_addresses()
-        to_unregister = [address for address in self._services.keys() if address not in addresses]
-        to_register = [address for address in addresses if address not in self._services.keys()]
-
-        def sync():
-            for address in to_unregister:
+            addresses = zeroconf.get_all_addresses()
+            # If an interface was gone, unregister the service for that interface
+            for address in set(self._services.keys()).difference(addresses):
                 self._services.pop(address).close()
-            for address in to_register:
+            # If a new interface was found, register the service for that
+            for address in set(addresses).difference(self._services.keys()):
                 self._init_service(address)
 
-        reactor.callInThread(sync)
+            await asyncio.sleep(10)
 
-    def start(self):
+    async def start(self):
         if self.running:
             return
         self.running = True
-        self._looping_call = LoopingCall(self._sync_services)
-        self._looping_call.start(10, False)
-        reactor.callInThread(self._init_services)
+        await self._init_services()
+        print("Service initialized..")
+        # loop.call_later(10, self._sync_services)
 
-    def stop(self):
+    async def stop(self):
         if not self.running:
             return
-        self._looping_call.stop()
-        self._close_services()
         self.running = False
+        await self._close_services()
