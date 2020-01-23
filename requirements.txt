@@ -1,5 +1,6 @@
 appdirs
-sqlalchemy
+tortoise-orm
+aiosqlite
 zeroconf
 crossbar
 autobahn[serialization]

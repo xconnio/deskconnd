@@ -46,17 +46,17 @@ class Authentication:
                 'role': auth_details.get("authrole")
             }
         if extras.get('otp') in self._pending_otps:
-            principle = DB.add_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
+            principle = await DB.add_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
             self._pending_otps.pop(extras.get('otp'))
         else:
-            principle = DB.get_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
+            principle = await DB.get_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
 
         if principle:
             return {
                 'pubkey': authid,
-                'realm': principle['realm'],
+                'realm': principle.realm,
                 'authid': authid,
-                'role': principle['role']
+                'role': principle.auth_role
             }
         raise ApplicationError('org.deskconn.deskconnd.no_such_user', 'no principal with matching public key')
 

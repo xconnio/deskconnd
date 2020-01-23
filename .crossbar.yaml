@@ -19,11 +19,6 @@ workers:
             caller: false
             publisher: false
           cache: false
-  components:
-  - type: class
-    realm: deskconn
-    role: deskconn
-    classname: deskconnd.components.ManagementSession
   transports:
   - type: websocket
     endpoint:

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2019 Omer Akram
+# Copyright (C) 2019-2020 Omer Akram
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -16,29 +16,21 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
 
-from sqlalchemy import Column, Integer, String
-
-from deskconnd.database.base import Base, engine
-
-
-class Principle(Base):
-    __tablename__ = 'principles'
-
-    uid = Column(Integer, primary_key=True)
-    access = Column(String(255), default='remote')
-    auth_id = Column(String(255), nullable=False, unique=True)
-    auth_role = Column(String(255), nullable=False)
-    realm = Column(String(255), nullable=False)
-
-    private_key = Column(String(255), nullable=True)
+from tortoise.models import Model
+from tortoise import fields
 
 
-class StrKeyStrValue(Base):
-    __tablename__ = 'str_key_str_value'
+class Principle(Model):
+    uid = fields.IntField(pk=True)
+    access = fields.CharField(255, default='remote')
+    auth_id = fields.CharField(255, unique=True)
+    auth_role = fields.CharField(255)
+    realm = fields.CharField(255)
 
-    uid = Column(Integer, primary_key=True)
-    key = Column(String(255), nullable=False, unique=True)
-    value = Column(String(255), nullable=True)
+    private_key = fields.CharField(255, null=True)
 
 
-Base.metadata.create_all(engine)
+class StrKeyStrValue(Model):
+    uid = fields.IntField(pk=True)
+    key = fields.CharField(255, unique=True)
+    value = fields.CharField(255, null=True)
