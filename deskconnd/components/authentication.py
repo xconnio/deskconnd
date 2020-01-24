@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2019 Omer Akram
+# Copyright (C) 2018-2020 Omer Akram
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -21,7 +21,7 @@ import random
 from autobahn.wamp.exception import ApplicationError
 import txaio
 
-from deskconnd.database.controller import DB
+from deskconnd.database.controller import add_principle, get_principle
 
 
 class Authentication:
@@ -46,10 +46,10 @@ class Authentication:
                 'role': auth_details.get("authrole")
             }
         if extras.get('otp') in self._pending_otps:
-            principle = await DB.add_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
+            principle = await add_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
             self._pending_otps.pop(extras.get('otp'))
         else:
-            principle = await DB.get_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
+            principle = await get_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
 
         if principle:
             return {

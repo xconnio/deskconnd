@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2019 Omer Akram
+# Copyright (C) 2018-2020 Omer Akram
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -23,7 +23,7 @@ import socket
 
 import zeroconf
 
-from deskconnd.database.controller import DB
+from deskconnd.database.controller import is_discovery_enabled
 
 SERVICE_IDENTIFIER = 'deskconn'
 
@@ -56,7 +56,7 @@ class Discovery:
             pass
 
     async def _init_services(self):
-        loop = asyncio.get_running_loop()
+        loop = asyncio.get_event_loop()
         futures = []
         executor = ThreadPoolExecutor()
         for address in zeroconf.get_all_addresses():
@@ -73,7 +73,7 @@ class Discovery:
 
     async def _sync_services(self):
         while self.running:
-            if not DB.is_discovery_enabled():
+            if not await is_discovery_enabled():
                 await self._close_services()
                 return
 

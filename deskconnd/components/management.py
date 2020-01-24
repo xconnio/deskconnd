@@ -16,27 +16,36 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
 
-import asyncio
-import os
-from pathlib import Path
-
-from autobahn.asyncio.wamp import ApplicationSession
-from autobahn.wamp.auth import AuthCryptoSign
-from autobahn.asyncio.component import Component, run
+from autobahn.wamp.auth import AuthCryptoSign, AuthAnonymous
+from autobahn.asyncio.component import Component
 from autobahn.wamp.cryptobox import KeyRing
+from pathlib import Path
 import txaio
 txaio.use_asyncio()  # noqa
 
-from deskconnd.database.controller import DB
-# from deskconnd.components._discovery import Discovery
-from deskconnd.components._authentication import Authentication
-# from deskconnd.environment import READY_PATH
+from deskconnd.database.controller import refresh_local_principle, is_discovery_enabled, toggle_discovery
+from deskconnd.components.authentication import Authentication
+from deskconnd.components.discovery import Discovery
+from deskconnd.environment import READY_PATH
 
 REALM = 'deskconn'
 
 
 async def init_principle():
-    return await DB.refresh_local_principle(KeyRing().generate_key_hex(), REALM, REALM)
+    return await refresh_local_principle(KeyRing().generate_key_hex(), REALM, REALM)
+
+
+def authenticator(principle):
+    component = Component(transports="ws://localhost:5020/ws", realm=principle.realm,
+                          authentication={"anonymous": AuthAnonymous(auth_role="authenticator")})
+
+    @component.on_join
+    async def joined(session, _details):
+        auth = Authentication(principle)
+        await session.register(auth.authenticate, 'org.deskconn.deskconnd.authenticate')
+        await session.register(auth.generate_otp, 'org.deskconn.deskconnd.pair')
+
+    return component
 
 
 def main(principle):
@@ -46,12 +55,23 @@ def main(principle):
                                                                        privkey=principle.private_key)})
 
     @component.on_join
-    async def joined(session, details):
-        auth = Authentication(principle)
-        await session.register(auth.authenticate, 'org.deskconn.deskconnd.authenticate')
-        await session.register(auth.generate_otp, 'org.deskconn.deskconnd.pair')
-        # await session.register(self._enable_discovery, 'org.deskconn.deskconnd.discovery.enable')
-        # await session.register(self._disable_discovery, 'org.deskconn.deskconnd.discovery.disable')
+    async def joined(session, _details):
+        discovery = Discovery()
+        if await is_discovery_enabled():
+            await toggle_discovery(True)
+
+        async def enable_discovery():
+            await toggle_discovery(True)
+            await discovery.start()
+
+        async def disable_discovery():
+            await toggle_discovery(False)
+            await discovery.stop()
+
+        await session.register(enable_discovery, 'org.deskconn.deskconnd.discovery.enable')
+        await session.register(disable_discovery, 'org.deskconn.deskconnd.discovery.disable')
+
+        Path(READY_PATH).touch()
 
     return component
 
@@ -79,10 +99,10 @@ def main(principle):
 #         self._discovery.stop()
 #         self.disconnect()
 #
-#     async def _enable_discovery(self):
-#         DB.toggle_discovery(True)
-#         await self._discovery.start()
-#
-#     async def _disable_discovery(self):
-#         DB.toggle_discovery(False)
-#         await self._discovery.stop()
+    async def _enable_discovery(self):
+        DB.toggle_discovery(True)
+        await self._discovery.start()
+
+    async def _disable_discovery(self):
+        DB.toggle_discovery(False)
+        await self._discovery.stop()

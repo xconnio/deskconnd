@@ -6,6 +6,18 @@ workers:
     options:
       enable_meta_api: false
     roles:
+    - name: authenticator
+      permissions:
+        - uri: 'org.deskconn.deskconnd.authenticate'
+          match: exact
+          allow:
+            register: true
+            call: true
+        - uri: 'org.deskconn.deskconnd.pair'
+          match: exact
+          allow:
+            register: true
+            call: true
     - name: deskconn
       permissions:
         - uri: ''
@@ -29,3 +41,9 @@ workers:
         type: dynamic
         authenticator: org.deskconn.deskconnd.authenticate
         authenticator-realm: deskconn
+      anonymous:
+        type: static
+        role: authenticator
+
+- type: guest
+  executable: manager.py

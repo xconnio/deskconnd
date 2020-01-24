@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 #
-# Copyright (C) 2019 Omer Akram
+# Copyright (C) 2019-2020 Omer Akram
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -17,23 +17,17 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
 
+import asyncio
 import argparse
 import sys
 
 from autobahn.asyncio.component import Component, run
 from autobahn.wamp.auth import AuthCryptoSign
 import qrcode
+import txaio
+txaio.use_asyncio()  # noqa
 
-from deskconnd.database.controller import DB
-
-principle = DB.get_local_principle()
-if not principle:
-    print("The backend is likely not running, please ensure its up.")
-    sys.exit(1)
-component = Component(transports="ws://localhost:5020/ws", realm=principle.realm,
-                      authentication={"cryptosign": AuthCryptoSign(authid=principle.auth_id,
-                                                                   authrole=principle.auth_role,
-                                                                   privkey=principle.private_key)})
+from deskconnd.database.controller import get_local_principle, init_db, close_db
 
 
 def _print_qr_code(text):
@@ -42,29 +36,31 @@ def _print_qr_code(text):
     qr.print_tty()
 
 
-def generate_otp():
-    @component.on_join
-    async def joined(session, _details):
-        res = await session.call("org.deskconn.deskconnd.pair")
-        _print_qr_code(res)
-        print("\nScan the QR Code or manually pair with: {}\n".format(res))
-        session.leave()
+async def construct_connection(main):
+    principle = await get_local_principle()
+    if not principle:
+        print("The backend is likely not running, please ensure its up.")
+        sys.exit(1)
+    return Component(transports="ws://localhost:5020/ws", realm=principle.realm, main=main,
+                     authentication={"cryptosign": AuthCryptoSign(authid=principle.auth_id,
+                                                                  authrole=principle.auth_role,
+                                                                  privkey=principle.private_key)})
 
-    run(component, log_level='warn')
+
+async def generate_otp(reactor, session):
+    print(reactor, session)
+    res = await session.call("org.deskconn.deskconnd.pair")
+    _print_qr_code(res)
+    print("\nScan the QR Code or manually pair with: {}\n".format(res))
 
 
-def toggle_discovery(enabled):
-    @component.on_join
-    async def joined(session, _details):
-        if enabled:
-            procedure = "org.deskconn.deskconnd.discovery.enable"
-        else:
-            procedure = "org.deskconn.deskconnd.discovery.disable"
+async def toggle_discovery(reactor, session):
+    if args.status == 'enable':
+        procedure = "org.deskconn.deskconnd.discovery.enable"
+    else:
+        procedure = "org.deskconn.deskconnd.discovery.disable"
 
-        await session.call(procedure)
-        session.leave()
-
-    run(component, log_level='warn')
+    await session.call(procedure)
 
 
 if __name__ == '__main__':
@@ -75,12 +71,19 @@ if __name__ == '__main__':
     commands.add_parser('pair')
     args = parser.parse_args()
 
-    if args.command == 'pair':
-        generate_otp()
-    elif args.command == 'discovery':
-        if args.status == 'enable':
-            toggle_discovery(True)
-        else:
-            toggle_discovery(False)
-    else:
+    if args.command != 'pair' and args.command != 'discovery':
         parser.print_help()
+        sys.exit(0)
+
+    loop = asyncio.get_event_loop()
+    txaio.config.loop = loop
+    loop.run_until_complete(init_db())
+
+    if args.command == 'pair':
+        component = loop.run_until_complete(construct_connection(generate_otp))
+        loop.run_until_complete(close_db())
+        run(component, log_level='warn')
+    elif args.command == 'discovery':
+        component = loop.run_until_complete(construct_connection(toggle_discovery))
+        loop.run_until_complete(close_db())
+        run(component, log_level='warn')

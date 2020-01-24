@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 #
 # Copyright (C) 2018-2020 Omer Akram
 #
@@ -17,38 +18,18 @@
 #
 
 import asyncio
-import signal
-import functools
-import os
-from pathlib import Path
 
-from autobahn.asyncio.wamp import ApplicationSession
-from autobahn.wamp.auth import AuthCryptoSign
-from autobahn.asyncio.component import Component, run
-from autobahn.wamp.cryptobox import KeyRing
-from tortoise import Tortoise
+from autobahn.asyncio.component import run
 import txaio
 txaio.use_asyncio()  # noqa
 
-from deskconnd.database.controller import DB
-from deskconnd.components.management import main, init_principle
-# from deskconnd.components._discovery import Discovery
-# from deskconnd.components._authentication import Authentication
-# from deskconnd.environment import READY_PATH
-
-
-async def on_interrupt():
-    await Tortoise.close_connections()
-    loop.stop()
+from deskconnd.database.controller import init_db
+from deskconnd.components.management import main, init_principle, authenticator
 
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
     txaio.config.loop = loop
-
-    loop.run_until_complete(DB.init_db())
-    loop.add_signal_handler(signal.SIGINT, functools.partial(asyncio.ensure_future, on_interrupt()))
-    loop.add_signal_handler(signal.SIGTERM, functools.partial(asyncio.ensure_future, on_interrupt()))
-
+    loop.run_until_complete(init_db())
     principle = loop.run_until_complete(init_principle())
-    run(main(principle))
+    run([authenticator(principle), main(principle)])
