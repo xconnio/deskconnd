@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 import os
 import socket
 
+import txaio
 import zeroconf
 
 from deskconnd.database.controller import is_discovery_enabled
@@ -72,6 +73,7 @@ class Discovery:
         self._services.clear()
 
     async def _sync_services(self):
+        await asyncio.sleep(10)
         while self.running:
             if not await is_discovery_enabled():
                 await self._close_services()
@@ -87,13 +89,14 @@ class Discovery:
 
             await asyncio.sleep(10)
 
+    def _sync(self, loop):
+        loop.run_until_complete(self._sync_services())
+
     async def start(self):
         if self.running:
             return
         self.running = True
         await self._init_services()
-        print("Service initialized..")
-        # loop.call_later(10, self._sync_services)
 
     async def stop(self):
         if not self.running:

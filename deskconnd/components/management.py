@@ -16,6 +16,8 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
 
+import os
+
 from autobahn.wamp.auth import AuthCryptoSign, AuthAnonymous
 from autobahn.asyncio.component import Component
 from autobahn.wamp.cryptobox import KeyRing
@@ -63,6 +65,7 @@ def main(principle):
         async def enable_discovery():
             await toggle_discovery(True)
             await discovery.start()
+            print("Started....")
 
         async def disable_discovery():
             await toggle_discovery(False)
@@ -72,6 +75,12 @@ def main(principle):
         await session.register(disable_discovery, 'org.deskconn.deskconnd.discovery.disable')
 
         Path(READY_PATH).touch()
+
+    @component.on_leave
+    async def left(_session, _details):
+        if os.path.exists(READY_PATH):
+            Path(READY_PATH).unlink()
+        # self._discovery.stop()
 
     return component
 
@@ -99,10 +108,10 @@ def main(principle):
 #         self._discovery.stop()
 #         self.disconnect()
 #
-    async def _enable_discovery(self):
-        DB.toggle_discovery(True)
-        await self._discovery.start()
-
-    async def _disable_discovery(self):
-        DB.toggle_discovery(False)
-        await self._discovery.stop()
+    # async def _enable_discovery(self):
+    #     DB.toggle_discovery(True)
+    #     await self._discovery.start()
+    #
+    # async def _disable_discovery(self):
+    #     DB.toggle_discovery(False)
+    #     await self._discovery.stop()
