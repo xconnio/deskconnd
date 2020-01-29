@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2019 Omer Akram
+# Copyright (C) 2020 Omer Akram
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -16,29 +16,3 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
 
-from sqlalchemy import Column, Integer, String
-
-from deskconnd.database.base import Base, engine
-
-
-class Principle(Base):
-    __tablename__ = 'principles'
-
-    uid = Column(Integer, primary_key=True)
-    access = Column(String(255), default='remote')
-    auth_id = Column(String(255))
-    auth_role = Column(String(255))
-    realm = Column(String(255))
-
-    private_key = Column(String(255), nullable=True)
-
-
-class StrKeyStrValue(Base):
-    __tablename__ = 'str_key_str_value'
-
-    uid = Column(Integer, primary_key=True)
-    key = Column(String(255), nullable=False, unique=True)
-    value = Column(String(255), nullable=True)
-
-
-Base.metadata.create_all(engine)
