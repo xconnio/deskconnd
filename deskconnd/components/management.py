@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2018-2019 Omer Akram
+# Copyright (C) 2018-2020 Omer Akram
 #
 # This program is free software; you can redistribute it and/or
 # modify it under the terms of the GNU General Public License
@@ -45,7 +45,8 @@ class ManagementSession(ApplicationSession):
     async def onJoin(self, details):
         self.log.info('realm joined: {}'.format(details.realm))
         await self.register(self._auth.authenticate, 'org.deskconn.deskconnd.authenticate')
-        await self.register(self._auth.generate_otp, 'org.deskconn.deskconnd.pair')
+        await self.register(self._auth.generate_otp, 'org.deskconn.deskconnd.pairing.generate_otp')
+        await self.register(self._auth.pair, 'org.deskconn.deskconnd.pairing.pair')
         await self.register(self._enable_discovery, 'org.deskconn.deskconnd.discovery.enable')
         await self.register(self._disable_discovery, 'org.deskconn.deskconnd.discovery.disable')
         Path(READY_PATH).touch()
@@ -54,7 +55,6 @@ class ManagementSession(ApplicationSession):
         if os.path.exists(READY_PATH):
             Path(READY_PATH).unlink()
         self._discovery.stop()
-        self.disconnect()
 
     async def _enable_discovery(self):
         DB.toggle_discovery(True)

@@ -15,10 +15,13 @@ workers:
             call: true
             publish: true
             subscribe: true
-          disclose:
-            caller: false
-            publisher: false
-          cache: false
+    - name: anonymous
+      permissions:
+        - uri: 'org.deskconn.deskconnd.pairing.'
+          match: prefix
+          allow:
+            register: true
+            call: true
   components:
   - type: class
     realm: deskconn
@@ -34,3 +37,6 @@ workers:
         type: dynamic
         authenticator: org.deskconn.deskconnd.authenticate
         authenticator-realm: deskconn
+      anonymous:
+        type: static
+        role: anonymous

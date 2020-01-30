@@ -45,11 +45,8 @@ class Authentication:
                 'authid': authid,
                 'role': auth_details.get("authrole")
             }
-        if extras.get('otp') in self._pending_otps:
-            principle = DB.add_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
-            self._pending_otps.remove(extras.get('otp'))
-        else:
-            principle = DB.get_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
+
+        principle = DB.get_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
 
         if principle:
             return {
@@ -65,6 +62,13 @@ class Authentication:
         self._pending_otps.append(key)
         txaio.call_later(60, self._revoke_otp, key)
         return key
+
+    async def pair(self, otp, pubkey):
+        if str(otp) in self._pending_otps:
+            self._pending_otps.remove(otp)
+            DB.add_principle(auth_id=pubkey, auth_role='deskconn', realm='deskconn')
+            return True
+        return False
 
     def _revoke_otp(self, otp):
         if otp in self._pending_otps:
