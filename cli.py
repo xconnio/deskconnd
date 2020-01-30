@@ -46,7 +46,7 @@ def _print_qr_code(text):
 def generate_otp():
     @component.on_join
     async def joined(session, _details):
-        res = await session.call("org.deskconn.deskconnd.pair")
+        res = await session.call("org.deskconn.deskconnd.pairing.generate_otp")
         _print_qr_code(res)
         print("Scan the QR Code or manually pair with: {}\n".format(res))
         session.leave()

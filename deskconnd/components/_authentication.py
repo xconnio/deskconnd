@@ -65,7 +65,7 @@ class Authentication:
 
     async def pair(self, otp, pubkey):
         if str(otp) in self._pending_otps:
-            self._pending_otps.remove(otp)
+            self._pending_otps.remove(str(otp))
             DB.add_principle(auth_id=pubkey, auth_role='deskconn', realm='deskconn')
             return True
         return False

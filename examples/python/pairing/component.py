@@ -20,7 +20,7 @@ import argparse
 import sys
 
 from autobahn.asyncio.component import Component, run
-from autobahn.wamp.auth import AuthCryptoSign
+from autobahn.wamp.auth import AuthAnonymous
 from autobahn.wamp.cryptosign import SigningKey
 from nacl.public import PrivateKey
 from nacl.encoding import HexEncoder
@@ -29,11 +29,18 @@ from nacl.encoding import HexEncoder
 # This example shows illustrates public key "pairing" with deskconnd
 
 
-def main(_aioloop, _session):
-    print("Successfully paired with server\n")
-    print("Public key: {}".format(public_key_hex))
-    print("Private key: {}\n".format(private_key_hex))
-    print("For practical use, you may need to store the key pair storage for reuse")
+def main():
+    @component.on_join
+    async def joined(session, details):
+        success = await session.call("org.deskconn.deskconnd.pairing.pair", args.otp, public_key_hex)
+        if success:
+            print("Successfully paired with server\n")
+            print("Public key: {}".format(public_key_hex))
+            print("Private key: {}\n".format(private_key_hex))
+            print("For practical use, you may need to store the key pair storage for reuse")
+        else:
+            print("Invalid OTP")
+        session.leave()
 
 
 if __name__ == '__main__':
@@ -46,8 +53,8 @@ if __name__ == '__main__':
     public_key_hex = signing_key.public_key()
     private_key_hex = key.encode(HexEncoder).decode('ascii')
 
-    auth = AuthCryptoSign(authrole="deskconn", authid=public_key_hex, privkey=private_key_hex,
-                          authextra={"otp": args.otp})
-    component = Component(main=main, transports="ws://localhost:5020/ws", realm="deskconn",
-                          authentication={"cryptosign": auth})
+    auth = AuthAnonymous(authrole='anonymous')
+    component = Component(transports="ws://localhost:5020/ws", realm="deskconn",
+                          authentication={"anonymous": auth})
+    main()
     run(component, log_level='warn')
