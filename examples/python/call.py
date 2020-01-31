@@ -17,13 +17,16 @@
 #
 
 import argparse
-import sys
+import os
+from pathlib import Path
 
 from autobahn.asyncio.component import Component, run
 from autobahn.wamp.auth import AuthAnonymous
 from autobahn.wamp.cryptosign import SigningKey
 from nacl.public import PrivateKey
 from nacl.encoding import HexEncoder
+
+KEYS_FILE = 'keys.txt'
 
 
 # This example shows illustrates public key "pairing" with deskconnd
@@ -37,7 +40,12 @@ def main():
             print("Successfully paired with server\n")
             print("Public key: {}".format(public_key_hex))
             print("Private key: {}\n".format(private_key_hex))
-            print("For practical use, you may need to store the key pair storage for reuse")
+            if os.path.exists(KEYS_FILE):
+                Path(KEYS_FILE).unlink()
+            with open(KEYS_FILE, 'w+') as file:
+                file.write("{}\n".format(public_key_hex))
+                file.write("{}".format(private_key_hex))
+            print("Keys are save in {}".format(KEYS_FILE))
         else:
             print("Invalid OTP")
         session.leave()
