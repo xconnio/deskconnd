@@ -12,7 +12,7 @@ description: |
 
 grade: stable
 confinement: strict
-base: core18
+base: core20
 
 architectures:
   - build-on: amd64
@@ -28,8 +28,8 @@ architectures:
     run-on: arm64
 
 environment:
-  PATH: $PATH:/snap/core18/current/usr/bin:$SNAP/bin
-  PYTHONPATH: $PYTHONPATH:$SNAP/lib/python3.6/site-packages
+  PATH: $PATH:/snap/core20/current/usr/bin:$SNAP/bin
+  PYTHONPATH: $PYTHONPATH:$SNAP/lib/python3.8/site-packages
 
 parts:
   deskconn:
@@ -38,7 +38,7 @@ parts:
     override-build: |
       snapcraftctl build
       python3 -O -m pip install --ignore-installed -U --no-compile --prefix $SNAPCRAFT_PART_INSTALL .
-      rm -r $SNAPCRAFT_PART_INSTALL/lib/python3.6/site-packages/numpy
+      rm -r $SNAPCRAFT_PART_INSTALL/lib/python3.8/site-packages/numpy
       python3 -O -m compileall -b -x .*\.syntaxerror.py$ $SNAPCRAFT_PART_INSTALL
       find $SNAPCRAFT_PART_INSTALL -type f -name "*.py" -exec rm {} \;
       find $SNAPCRAFT_PART_INSTALL -type f -name "*.so" -exec strip -s {} \;
@@ -55,6 +55,8 @@ parts:
       - libsnappy-dev
       - libunwind-dev
       - python3-pip
+      - python3-setuptools
+      - python3-dev
   launchers:
     plugin: dump
     source: .

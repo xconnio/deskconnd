@@ -19,10 +19,6 @@
 import os
 from pathlib import Path
 
-from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
-
 from deskconnd.environment import get_data_directory
 
 DB_FILE = "deskconn.db"
@@ -31,8 +27,3 @@ DB_FILE = "deskconn.db"
 def get_db_path():
     Path(get_data_directory()).mkdir(parents=True, exist_ok=True)
     return os.path.join(get_data_directory(), DB_FILE)
-
-
-engine = create_engine(f'sqlite:///{get_db_path()}')
-Session = sessionmaker(bind=engine)
-Base = declarative_base()

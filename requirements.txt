@@ -1,7 +1,6 @@
 appdirs
-sqlalchemy
+sqlitedict
 zeroconf
-
 crossbar
 autobahn[twisted,serialization]
 pyqrcode

@@ -37,5 +37,5 @@ setup(
     description='Secure, cross-platform IPC on the network.',
     download_url='https://github.com/deskconn/deskconnd/tarball/{}'.format(VERSION),
     keywords=['IPC', 'python'],
-    install_requires=['crossbar', 'appdirs', 'sqlalchemy', 'zeroconf', 'pyqrcode', 'autobahn[twisted,serialization]']
+    install_requires=['crossbar', 'appdirs', 'sqlitedict', 'zeroconf', 'pyqrcode', 'autobahn[twisted,serialization]']
 )

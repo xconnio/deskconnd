@@ -17,7 +17,6 @@
 #
 
 import os
-from pathlib import Path
 
 import appdirs
 
@@ -35,12 +34,3 @@ def get_data_directory():
     else:
         root = appdirs.user_state_dir(APP_NAME, APP_AUTHOR)
     return os.path.join(root, 'state')
-
-
-def get_state_directory():
-    state_dir = get_data_directory()
-    Path(state_dir).mkdir(parents=True, exist_ok=True)
-    return state_dir
-
-
-READY_PATH = os.path.join(get_state_directory(), 'ready')

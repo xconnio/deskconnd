@@ -16,29 +16,11 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 #
 
-from sqlalchemy import Column, Integer, String
 
-from deskconnd.database.base import Base, engine
-
-
-class Principle(Base):
-    __tablename__ = 'principles'
-
-    uid = Column(Integer, primary_key=True)
-    access = Column(String(255), default='remote')
-    auth_id = Column(String(255))
-    auth_role = Column(String(255))
-    realm = Column(String(255))
-
-    private_key = Column(String(255), nullable=True)
-
-
-class StrKeyStrValue(Base):
-    __tablename__ = 'str_key_str_value'
-
-    uid = Column(Integer, primary_key=True)
-    key = Column(String(255), nullable=False, unique=True)
-    value = Column(String(255), nullable=True)
-
-
-Base.metadata.create_all(engine)
+class Principle:
+    def __init__(self, authid, authrole, realm, access='remote', privkey=None) -> None:
+        self.authid = authid
+        self.realm = realm
+        self.authrole = authrole
+        self.privkey = privkey
+        self.access = access

@@ -18,7 +18,7 @@
 
 import random
 
-from autobahn.wamp.exception import ApplicationError
+from autobahn.wamp import register
 import txaio
 
 from deskconnd.database.controller import DB
@@ -29,44 +29,53 @@ class Authentication:
         self._principle = principle
         self._pending_otps = []
         self._log = txaio.make_logger()
+        self.db = DB()
 
     def _is_local(self, auth_id, auth_role, realm):
-        return self._principle.auth_id == auth_id and self._principle.auth_role == auth_role and \
+        return self._principle.authid == auth_id and self._principle.authrole == auth_role and \
                self._principle.realm == realm
 
+    @register(None)
     async def authenticate(self, realm, authid, auth_details):
         assert auth_details.get('authmethod') == 'cryptosign'
         self._log.info("authenticating session with public key = {pubkey}", pubkey=authid)
         extras = auth_details.get("authextra")
+
         if self._is_local(authid, auth_details.get("authrole"), realm):
             return {
                 'pubkey': extras.get("pubkey"),
                 'realm': realm,
                 'authid': authid,
-                'role': auth_details.get("authrole")
+                'role': 'cli'
             }
 
-        principle = DB.get_principle(auth_id=authid, auth_role=auth_details.get("authrole"), realm=realm)
+        principle = self.db.get_principle(auth_id=authid)
 
         if principle:
-            return {
-                'pubkey': authid,
-                'realm': principle.realm,
-                'authid': authid,
-                'role': principle.auth_role
-            }
-        raise ApplicationError('org.deskconn.deskconnd.no_such_user', 'no principal with matching public key')
+            realm = principle.realm
+            role = principle.auth_role
+        else:
+            role = 'anonymous'
 
+        return {
+            'pubkey': authid,
+            'realm': realm,
+            'authid': authid,
+            'role': role
+        }
+
+    @register(None)
     async def generate_otp(self):
         key = str(random.randint(100000, 999999))
         self._pending_otps.append(key)
         txaio.call_later(60, self._revoke_otp, key)
         return key
 
+    @register(None)
     async def pair(self, otp, pubkey):
         if str(otp) in self._pending_otps:
             self._pending_otps.remove(str(otp))
-            DB.add_principle(auth_id=pubkey, auth_role='deskconn', realm='deskconn')
+            self.db.add_principle(auth_id=pubkey, auth_role='deskconn', realm='deskconn')
             return True
         return False
 

@@ -18,93 +18,68 @@
 
 import uuid
 
-from deskconnd.database.schema import Principle, StrKeyStrValue
-from deskconnd.database.base import Session
+from sqlitedict import SqliteDict
+
+from deskconnd.database.schema import Principle
+from deskconnd.database.base import get_db_path
 
 
 class DB:
-    __session = None
 
-    @staticmethod
-    def _get_instance():
-        if not DB.__session:
-            DB.__session = Session()
-        return DB.__session
+    def __init__(self) -> None:
+        super().__init__()
+        self.db: SqliteDict = SqliteDict(get_db_path(), autocommit=True)
 
-    @staticmethod
-    def put_string(key, value):
-        item = DB._get_instance().query(StrKeyStrValue).filter(StrKeyStrValue.key == key).first()
-        if item:
-            item.value = value
-        else:
-            DB._get_instance().add(StrKeyStrValue(key=key, value=value))
-        DB._get_instance().commit()
+    def put_string(self, key: str, value):
+        assert isinstance(key, str)
+        assert isinstance(value, str)
+        self.db[key] = value
 
-    @staticmethod
-    def get_string(key, default=None):
-        item = DB._get_instance().query(StrKeyStrValue).filter(StrKeyStrValue.key == key).first()
-        if item:
-            return item.value
-        return default
+    def get_string(self, key: str, default=None):
+        assert isinstance(key, str)
+        assert isinstance(default, str) or default is None
+        return self.db.get(key, default)
 
-    @staticmethod
-    def put_boolean(key, value):
+    def put_boolean(self, key: str, value: bool):
+        assert isinstance(key, str)
         assert isinstance(value, bool)
-        DB.put_string(key, str(value))
+        self.db[key] = value
 
-    @staticmethod
-    def get_boolean(key, default=True):
-        value = DB.get_string(key)
-        if value is None:
-            return default
+    def get_boolean(self, key, default=True):
+        assert isinstance(key, str)
+        assert isinstance(default, bool)
+        return self.db.get(key, default)
 
-        if value.lower() == 'true':
-            return True
-        return False
+    def is_first_run(self):
+        return self.get_boolean('first_run', True)
 
-    @staticmethod
-    def is_first_run():
-        return DB.get_boolean("first_run", True)
-
-    @staticmethod
-    def init_config():
-        if DB.is_first_run():
+    def init_config(self):
+        if self.is_first_run():
             uid = str(uuid.uuid4())
-            DB.put_string("uid", uid)
-            DB.put_boolean("first_run", False)
+            self.db['uid'] = uid
+            self.put_boolean('first_run', False)
             return uid
-        return DB.get_string("uid")
 
-    @staticmethod
-    def add_principle(auth_id, auth_role, realm, access='remote', private_key=None):
-        principle = Principle(auth_id=auth_id, auth_role=auth_role, realm=realm, access=access,
-                              private_key=private_key)
-        DB._get_instance().add(principle)
-        DB._get_instance().commit()
+        return self.get_string('uid')
+
+    def add_principle(self, auth_id, auth_role, realm, access='remote', private_key=None):
+        principle = Principle(auth_id, auth_role, realm, access, private_key)
+        self.db[auth_id] = principle
         return principle
 
-    @staticmethod
-    def get_principle(auth_id, auth_role, realm):
-        return DB._get_instance().query(Principle).filter(
-            Principle.auth_id == auth_id, Principle.auth_role == auth_role, Principle.realm == realm).first()
+    def get_principle(self, auth_id):
+        return self.db.get(auth_id)
 
-    @staticmethod
-    def get_local_principle():
-        return DB._get_instance().query(Principle).filter(Principle.access == 'local').first()
+    def get_local_principle(self):
+        return self.db.get('local_principle')
 
-    @staticmethod
-    def refresh_local_principle(key_pair, auth_role, realm):
-        item = DB._get_instance().query(Principle).filter(Principle.access == 'local').first()
-        if item:
-            DB._get_instance().delete(item)
-            DB._get_instance().commit()
-        return DB.add_principle(auth_id=key_pair[1], auth_role=auth_role, realm=realm, access='local',
-                                private_key=key_pair[0])
+    def refresh_local_principle(self, key_pair, auth_role, realm):
+        principle = Principle(key_pair[1], auth_role, realm, 'local', key_pair[0])
+        self.db['local_principle'] = principle
+        return principle
 
-    @staticmethod
-    def toggle_discovery(enabled):
-        DB.put_boolean("discovery", enabled)
+    def toggle_discovery(self, enabled):
+        self.put_boolean('discovery', enabled)
 
-    @staticmethod
-    def is_discovery_enabled():
-        return DB.get_boolean("discovery", True)
+    def is_discovery_enabled(self):
+        return self.get_boolean('discovery', True)

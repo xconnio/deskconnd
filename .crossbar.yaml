@@ -6,26 +6,41 @@ workers:
     options:
       enable_meta_api: false
     roles:
+    - name: backend
+      permissions:
+        - uri: 'org.deskconn.'
+          match: prefix
+          allow:
+            register: true
+
     - name: deskconn
       permissions:
-        - uri: ''
+        - uri: 'org.deskconn.'
           match: prefix
           allow:
             register: true
             call: true
             publish: true
             subscribe: true
-    - name: anonymous
+
+    - name: cli
       permissions:
-        - uri: 'org.deskconn.deskconnd.pairing.'
-          match: prefix
+        - uri: 'org.deskconn.generate_otp'
+          match: exact
           allow:
-            register: true
+            call: true
+        - uri: 'org.deskconn.enable_discovery'
+          match: exact
+          allow:
+            call: true
+        - uri: 'org.deskconn.disable_discovery'
+          match: exact
+          allow:
             call: true
   components:
   - type: class
     realm: deskconn
-    role: deskconn
+    role: backend
     classname: deskconnd.components.ManagementSession
   transports:
   - type: websocket
@@ -35,8 +50,5 @@ workers:
     auth:
       cryptosign:
         type: dynamic
-        authenticator: org.deskconn.deskconnd.authenticate
+        authenticator: org.deskconn.authenticate
         authenticator-realm: deskconn
-      anonymous:
-        type: static
-        role: anonymous

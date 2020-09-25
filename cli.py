@@ -22,23 +22,32 @@ import sys
 
 from autobahn.twisted.component import Component, run
 from autobahn.wamp.auth import AuthCryptoSign
+import pyqrcode
 
 from deskconnd.database.controller import DB
 
-principle = DB.get_local_principle()
-if not principle:
+principle = DB().get_local_principle()
+if principle is None:
     print("The backend is likely not running, please ensure its up.")
     sys.exit(1)
-component = Component(transports="ws://localhost:5020/ws", realm=principle.realm,
-                      authentication={"cryptosign": AuthCryptoSign(authid=principle.auth_id,
-                                                                   authrole=principle.auth_role,
-                                                                   privkey=principle.private_key,
-                                                                   authextra={})})
+
+authid = principle.authid
+authrole = principle.authrole
+privkey = principle.privkey
+realm = principle.realm
+
+
+component = Component(transports="ws://127.0.0.1:5020/ws", realm=realm,
+                      authentication={"cryptosign": AuthCryptoSign(authid=authid, authrole=authrole, privkey=privkey)})
+
+
+@component.on_connectfailure
+def fail(_component: Component, message):
+    print("Unable to connect to backend. Please ensure it's running.")
+    _component.stop()
 
 
 def _print_qr_code(text):
-    import pyqrcode
-
     qr = pyqrcode.create(text, mode='numeric')
     print(qr.terminal(quiet_zone=1))
 
@@ -46,7 +55,7 @@ def _print_qr_code(text):
 def generate_otp():
     @component.on_join
     async def joined(session, _details):
-        res = await session.call("org.deskconn.deskconnd.pairing.generate_otp")
+        res = await session.call("org.deskconn.generate_otp")
         _print_qr_code(res)
         print("Scan the QR Code or manually pair with: {}\n".format(res))
         session.leave()
@@ -54,13 +63,13 @@ def generate_otp():
     run([component], None)
 
 
-def toggle_discovery(enabled):
+def toggle_discovery(enable):
     @component.on_join
     async def joined(session, _details):
-        if enabled:
-            procedure = "org.deskconn.deskconnd.discovery.enable"
+        if enable:
+            procedure = "org.deskconn.enable_discovery"
         else:
-            procedure = "org.deskconn.deskconnd.discovery.disable"
+            procedure = "org.deskconn.disable_discovery"
 
         await session.call(procedure)
         session.leave()
