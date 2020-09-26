@@ -84,13 +84,13 @@ apps:
       - network-bind
 
 slots:
-  runtime:
+  deskconn-runtime-dir:
     interface: content
     content: runtime
     read:
       - $SNAP
-  state:
+  deskconn-sock-dir:
     interface: content
-    content: state
+    content: sock
     read:
-      - $SNAP_COMMON/state
+      - $SNAP_COMMON/deskconn-sock-dir

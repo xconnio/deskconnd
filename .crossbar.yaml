@@ -52,3 +52,11 @@ workers:
         type: dynamic
         authenticator: org.deskconn.authenticate
         authenticator-realm: deskconn
+  - type: rawsocket
+    endpoint:
+      type: unix
+      path: $DESKCONN_SOCK_DIR/deskconnd.sock
+    auth:
+      anonymous:
+        type: static
+        role: deskconn
