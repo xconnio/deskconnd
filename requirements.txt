@@ -4,3 +4,4 @@ zeroconf
 crossbar
 autobahn[twisted,serialization]
 pyqrcode
+virtualenv
