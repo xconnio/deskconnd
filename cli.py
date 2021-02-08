@@ -58,6 +58,7 @@ def generate_otp():
         res = await session.call("org.deskconn.generate_otp")
         _print_qr_code(res)
         print("Scan the QR Code or manually pair with: {}\n".format(res))
+        print(authid, authrole, privkey)
         session.leave()
 
     run([component], None)

@@ -1,4 +1,5 @@
-sudo apt install virtualenv
+sudo apt update && apt upgrade -y
+sudo apt install virtualenv gcc python3-dev -y
 
 virtualenv venv
 source venv/bin/activate
