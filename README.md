@@ -28,6 +28,7 @@ or
 ```shell
 sudo apt update && apt upgrade -y
 sudo apt install virtualenv gcc python3-dev -y
+
 virtualenv venv
 source venv/bin/activate
 pip3 install wheel -r requirements.txt
@@ -51,11 +52,12 @@ or just do snap
 snap install deskconnd
 ```
 
-list of discorable devices by avahi-browse
+list of discoverable devices by avahi-browse
 ```shell
 avahi-browse ar
 ```
 ![image info](./images/result.png)
+
 
 ### Disable Service Discovery
 
@@ -100,9 +102,11 @@ desckonnctl discovery enable
 ```shell
 python3 cli.py pair
 ```
+
 or 
 
 ```shell
 deskconnctl pair
 ```
 ![image info](./images/pair.png)
+
