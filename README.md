@@ -8,22 +8,15 @@ Secure, cross-platform IPC on the network.
 
 ```shell
 git clone https://github.com/deskconn/deskconnd.git
-```
-
-then just cd into the directory
-
-```shell
 cd deskconnd
 ```
 
 ### Install requirements
 
 ```
-bash get_requirements.sh
+./get_requirements.sh
 ```
-
 or
-
 ```shell
 sudo apt install virtualenv
 virtualenv venv
@@ -34,7 +27,7 @@ pip3 install wheel -r requirements.txt
 ### Initialization
 
 ```shell
-bash scripts/daemon_dev.sh
+./scripts/daemon_dev.sh
 ```
 
 ### Disable Service Discovery
