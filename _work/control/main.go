@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
+	"github.com/deskconn/deskconnd/discovery"
+
 	//"flag"
 	"fmt"
 	"os"
@@ -15,7 +17,6 @@ import (
 	"github.com/gammazero/nexus/v3/router"
 	"github.com/gammazero/nexus/v3/router/auth"
 	"github.com/gammazero/nexus/v3/wamp"
-	"github.com/grandcat/zeroconf"
 	"github.com/sirupsen/logrus"
 )
 
@@ -133,23 +134,10 @@ func main() {
 }
 
 func enableDiscovery(ctx context.Context, inv *wamp.Invocation) client.InvokeResult {
-	now := time.Now()
-	results := wamp.List{fmt.Sprintf("UTC: %s", now.UTC())}
-
-	return client.InvokeResult{Args: results}
+	server := discovery.PublishName("deskconn", "deskconnd")
+	return client.InvokeResult{Args: wamp.List{server != nil}}
 }
 
 func disableDiscovery(ctx context.Context, inv *wamp.Invocation) client.InvokeResult {
-	now := time.Now()
-	results := wamp.List{fmt.Sprintf("UTC: %s", now.UTC())}
-
-	return client.InvokeResult{Args: results}
-}
-
-func PublishName(realm string, serviceName string) (*zeroconf.Server, error) {
-	hostname, _ := os.Hostname()
-
-	return zeroconf.Register(hostname, fmt.Sprintf("_%s._tcp", serviceName), "local.", 8080,
-		[]string{fmt.Sprintf("realm=%s", realm)}, nil)
-
+	return client.InvokeResult{Args: wamp.List{discovery.UnPublish()}}
 }
