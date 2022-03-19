@@ -5,8 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"github.com/gammazero/nexus/v3/client"
-	"log"
-
 	//"flag"
 	"fmt"
 	"github.com/sirupsen/logrus"
@@ -14,14 +12,14 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/gammazero/nexus/v3/router/auth"
 	"github.com/gammazero/nexus/v3/router"
+	"github.com/gammazero/nexus/v3/router/auth"
 	"github.com/gammazero/nexus/v3/wamp"
 )
 
 type keyStore struct {
-	provider string
-	publicKey   string
+	provider  string
+	publicKey string
 }
 
 func (ks *keyStore) AuthKey(authid, authmethod string) ([]byte, error) {
@@ -49,7 +47,6 @@ func (ks *keyStore) PasswordInfo(authid string) (string, int, int) {
 
 func (ks *keyStore) Provider() string { return ks.provider }
 
-
 func main() {
 	logger := logrus.New()
 
@@ -58,16 +55,18 @@ func main() {
 		publicKey: "f1c01c480112705361beb5e4eda8544f951abb7ca918f76327a3a5240f352292",
 	}
 
-	cryptosign := auth.NewCryptoSignAuthenticator(tks, 10 * time.Second)
+	defaultRealm := "deskconn"
+
+	cryptosign := auth.NewCryptoSignAuthenticator(tks, 10*time.Second)
 
 	// Create router instance.
 	routerConfig := &router.Config{
 		RealmConfigs: []*router.RealmConfig{
 			{
-				URI:           wamp.URI("com.crossbario.fabric"),
-				AnonymousAuth: true,
-				AllowDisclose: true,
-				MetaStrict: true,
+				URI:            wamp.URI(defaultRealm),
+				AnonymousAuth:  true,
+				AllowDisclose:  true,
+				MetaStrict:     true,
 				Authenticators: []auth.Authenticator{cryptosign},
 			},
 		},
@@ -81,8 +80,8 @@ func main() {
 		logger.Fatal(err)
 	}
 
-	netAddr := "localhost"
-	wsPort := 9000
+	netAddr := "0.0.0.0"
+	wsPort := 5020
 
 	// Setup listening websocket transport
 	// Create websocket server.
@@ -102,16 +101,24 @@ func main() {
 	}
 
 	cfg := client.Config{
-		Realm:  "com.crossbario.fabric",
+		Realm:  defaultRealm,
 		Logger: logger,
 	}
 	callee, _ := client.ConnectLocal(nxr, cfg)
 
-	proc := "crossbarfabriccenter.mrealm.get_status"
-	if err = callee.Register(proc, getStatus, nil); err != nil {
+	proc := "org.deskconn.enable_discovery"
+	if err = callee.Register(proc, enableDiscovery, nil); err == nil {
+		logger.Infof("Registered procedure %q with router", proc)
+	} else {
 		logger.Errorf("Failed to register %q: %s", proc, err)
 	}
-	log.Printf("Registered procedure %q with router", proc)
+
+	proc = "org.deskconn.disable_discovery"
+	if err = callee.Register(proc, disableDiscovery, nil); err == nil {
+		logger.Infof("Registered procedure %q with router", proc)
+	} else {
+		logger.Errorf("Failed to register %q: %s", proc, err)
+	}
 
 	// Wait for SIGINT (CTRL-c), then close servers and exit.
 	shutdown := make(chan os.Signal, 1)
@@ -119,7 +126,14 @@ func main() {
 	<-shutdown
 }
 
-func getStatus(ctx context.Context, inv *wamp.Invocation) client.InvokeResult {
+func enableDiscovery(ctx context.Context, inv *wamp.Invocation) client.InvokeResult {
+	now := time.Now()
+	results := wamp.List{fmt.Sprintf("UTC: %s", now.UTC())}
+
+	return client.InvokeResult{Args: results}
+}
+
+func disableDiscovery(ctx context.Context, inv *wamp.Invocation) client.InvokeResult {
 	now := time.Now()
 	results := wamp.List{fmt.Sprintf("UTC: %s", now.UTC())}
 
