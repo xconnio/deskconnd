@@ -4,17 +4,18 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"github.com/gammazero/nexus/v3/client"
 	//"flag"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
 	"time"
 
+	"github.com/gammazero/nexus/v3/client"
 	"github.com/gammazero/nexus/v3/router"
 	"github.com/gammazero/nexus/v3/router/auth"
 	"github.com/gammazero/nexus/v3/wamp"
+	"github.com/grandcat/zeroconf"
+	"github.com/sirupsen/logrus"
 )
 
 type keyStore struct {
@@ -56,6 +57,7 @@ func main() {
 	}
 
 	defaultRealm := "deskconn"
+	//var mdns *zeroconf.Server
 
 	cryptosign := auth.NewCryptoSignAuthenticator(tks, 10*time.Second)
 
@@ -87,7 +89,6 @@ func main() {
 	// Create websocket server.
 	wss := router.NewWebsocketServer(nxr)
 	wss.Upgrader.EnableCompression = true
-	wss.EnableTrackingCookie = true
 	wss.KeepAlive = 30 * time.Second
 
 	// Run websocket server.
@@ -138,4 +139,12 @@ func disableDiscovery(ctx context.Context, inv *wamp.Invocation) client.InvokeRe
 	results := wamp.List{fmt.Sprintf("UTC: %s", now.UTC())}
 
 	return client.InvokeResult{Args: results}
+}
+
+func PublishName(realm string, serviceName string) (*zeroconf.Server, error) {
+	hostname, _ := os.Hostname()
+
+	return zeroconf.Register(hostname, fmt.Sprintf("_%s._tcp", serviceName), "local.", 8080,
+		[]string{fmt.Sprintf("realm=%s", realm)}, nil)
+
 }
