@@ -10,13 +10,13 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/deskconn/deskconnd/db"
 	"github.com/gammazero/nexus/v3/client"
 	"github.com/gammazero/nexus/v3/router"
 	"github.com/gammazero/nexus/v3/router/auth"
 	"github.com/gammazero/nexus/v3/wamp"
 	"github.com/grandcat/zeroconf"
 	"github.com/sirupsen/logrus"
-	//"github.com/deskconn/deskconnd/db"
 )
 
 type keyStore struct {
@@ -121,6 +121,10 @@ func main() {
 	} else {
 		logger.Errorf("Failed to register %q: %s", proc, err)
 	}
+
+	db.CreateUser("Foo", "Bar")
+	user := db.GetUser()
+	println(user.LastName)
 
 	// Wait for SIGINT (CTRL-c), then close servers and exit.
 	shutdown := make(chan os.Signal, 1)
