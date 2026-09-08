@@ -108,9 +108,6 @@ func main() {
 	attachPasswordStdin := attachCmd.Flag("password-stdin", "Read password from stdin").Bool()
 
 	detachCmd := app.Command("detach", "Detach device")
-	detachUsername := detachCmd.Flag("username", "Username").Short('u').String()
-	detachPassword := detachCmd.Flag("password", "Password").Short('p').String()
-	detachPasswordStdin := detachCmd.Flag("password-stdin", "Read password from stdin").Bool()
 
 	loginCmd := app.Command("login", "Login and store credentials")
 	loginUsername := loginCmd.Flag("username", "Username").Short('u').String()
@@ -318,7 +315,7 @@ func main() {
 		}
 
 	case detachCmd.FullCommand():
-		if err := detach(*detachUsername, *detachPassword, *detachPasswordStdin); err != nil {
+		if err := detach(cfgDirectory); err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
 
@@ -2177,23 +2174,13 @@ func promptAttachDevice(username, password string) error {
 	return deskconn.CacheDevices(cfgDirectory, devices)
 }
 
-func detach(flagUsername, flagPassword string, useStdin bool) error {
-	username, password, err := readCredentials(flagUsername, flagPassword, useStdin)
+func detach(cfgDirectory string) error {
+	session, err := deskconn.ConnectCloudRealm(cfgDirectory)
 	if err != nil {
 		return err
 	}
 
-	quicSess, err := deskconn.ConnectCloudCRA(context.Background(), username, password)
-	if err != nil {
-		return err
-	}
-	deskconn.SafeGo(func() {
-		<-quicSess.Done()
-		_ = quicSess.Connection().Close()
-	})
-	defer quicSess.Connection().Close()
-
-	authID, name, err := selectDevice(quicSess.Session)
+	authID, name, err := selectDevice(session)
 	if err != nil {
 		return err
 	}
@@ -2208,7 +2195,7 @@ func detach(flagUsername, flagPassword string, useStdin bool) error {
 		return nil
 	}
 
-	return deskconn.Detach(quicSess.Session, authID)
+	return deskconn.Detach(session, authID)
 }
 
 func login(flagUsername, flagPassword string, useStdin bool) error {
