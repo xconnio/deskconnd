@@ -149,19 +149,6 @@ func main() {
 		log.Fatal(regRespCat.Err)
 	}
 
-	regRespFilePush := sess.Register(deskconn.ProcedureProxyFilePush,
-		deskconn.ProxyProgressiveInvocationHandler(proxyCalls, clientSession, cfgDirectory,
-			deskconn.ProcedureFileUpload)).Do()
-	if regRespFilePush.Err != nil {
-		log.Fatal(regRespFilePush.Err)
-	}
-
-	regRespFilePull := sess.Register(deskconn.ProcedureProxyFilePull,
-		deskconn.ProxyFilePullHandler(clientSession, cfgDirectory)).Do()
-	if regRespFilePull.Err != nil {
-		log.Fatal(regRespFilePull.Err)
-	}
-
 	regRespPortForward := sess.Register(deskconn.ProcedureProxyPortForward,
 		deskconn.ProxyPortForwardHandler(clientSession, cfgDirectory)).Do()
 	if regRespPortForward.Err != nil {

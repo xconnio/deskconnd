@@ -3,50 +3,49 @@ package deskconn
 import (
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/xconnio/xconn-go"
 )
 
-const (
-	quicOpUpload   = "upload"
-	quicOpDownload = "download"
+// maxMsgSize bounds readFrame's allocation. Control frames (fsRequest/
+// fsResponse, possibly encrypted) are small; encrypted file-data chunks are
+// bounded by encChunkSize plus a little AEAD overhead. Either way this is
+// generous headroom rather than a tight fit.
+const maxMsgSize = 1 << 20 // 1 MiB
 
-	quicFrameHeader = "header"
-	quicFrameDone   = "done"
-
-	// maxMsgSize bounds readMsg's allocation. Messages are small JSON control
-	// frames (streamRequest/streamResponse/streamFileFrame), never file content,
-	// so this is generous headroom rather than a tight fit.
-	maxMsgSize = 1 << 20 // 1 MiB
-)
-
-type streamRequest struct {
-	Realm     string `json:"realm"`
-	Op        string `json:"op"`
-	Path      string `json:"path"`
-	Recursive bool   `json:"recursive,omitempty"`
+// writeFrame/readFrame are the raw length-prefixed framing every message on
+// a QUIC file-transfer stream uses, whether it carries plaintext JSON (the
+// routingFrame and key exchange, which the router and the peer must be able
+// to read) or an encrypted payload (everything after the key exchange).
+func writeFrame(w io.Writer, data []byte) error {
+	var length [4]byte
+	binary.BigEndian.PutUint32(length[:], uint32(len(data))) //nolint:gosec
+	if _, err := w.Write(length[:]); err != nil {
+		return err
+	}
+	_, err := w.Write(data)
+	return err
 }
 
-type streamResponse struct {
-	OK  bool   `json:"ok"`
-	Err string `json:"error,omitempty"`
-}
-
-type streamFileFrame struct {
-	Type    string `json:"type"`
-	Name    string `json:"name,omitempty"`
-	RelPath string `json:"rel_path,omitempty"`
-	Size    int64  `json:"size,omitempty"`
-	Mode    uint32 `json:"mode,omitempty"`
-	IsDir   bool   `json:"is_dir,omitempty"`
+func readFrame(r io.Reader) ([]byte, error) {
+	var length [4]byte
+	if _, err := io.ReadFull(r, length[:]); err != nil {
+		return nil, err
+	}
+	n := binary.BigEndian.Uint32(length[:])
+	if n > maxMsgSize {
+		return nil, fmt.Errorf("message too large: %d bytes", n)
+	}
+	buf := make([]byte, n)
+	if _, err := io.ReadFull(r, buf); err != nil {
+		return nil, err
+	}
+	return buf, nil
 }
 
 func writeMsg(w io.Writer, v any) error {
@@ -54,29 +53,42 @@ func writeMsg(w io.Writer, v any) error {
 	if err != nil {
 		return err
 	}
-	var length [4]byte
-	binary.BigEndian.PutUint32(length[:], uint32(len(b))) //nolint:gosec
-	if _, err = w.Write(length[:]); err != nil {
-		return err
-	}
-	_, err = w.Write(b)
-	return err
+	return writeFrame(w, b)
 }
 
 func readMsg(r io.Reader, v any) error {
-	var length [4]byte
-	if _, err := io.ReadFull(r, length[:]); err != nil {
-		return err
-	}
-	n := binary.BigEndian.Uint32(length[:])
-	if n > maxMsgSize {
-		return fmt.Errorf("message too large: %d bytes", n)
-	}
-	buf := make([]byte, n)
-	if _, err := io.ReadFull(r, buf); err != nil {
+	buf, err := readFrame(r)
+	if err != nil {
 		return err
 	}
 	return json.Unmarshal(buf, v)
+}
+
+// writeEncryptedMsg/readEncryptedMsg are writeMsg/readMsg's encrypted
+// counterparts, used for every fsRequest/fsResponse once the per-stream key
+// exchange has happened.
+func writeEncryptedMsg(w io.Writer, v any, key []byte) error {
+	plaintext, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	ciphertext, err := EncryptPayload(plaintext, key)
+	if err != nil {
+		return err
+	}
+	return writeFrame(w, ciphertext)
+}
+
+func readEncryptedMsg(r io.Reader, v any, key []byte) error {
+	ciphertext, err := readFrame(r)
+	if err != nil {
+		return err
+	}
+	plaintext, err := DecryptPayload(ciphertext, key)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(plaintext, v)
 }
 
 // AcceptQUICStreams runs an accept loop on a QUICSession, dispatching each server-initiated
@@ -91,404 +103,482 @@ func (d *Deskconn) AcceptQUICStreams(sess *xconn.QUICSession) {
 	}
 }
 
-// HandleQUICStream handles a single raw QUIC stream carrying a file transfer request.
+// routingFrame is the first message on every client-opened QUIC stream.
+// deskconn-router's connBroker reads exactly these fields to route the
+// stream to the right device, then bridges the rest of the stream through
+// unmodified -- so it must be sent in the clear, before the key exchange
+// (see keyExchangeMsg) and the encrypted real request that follow it.
+type routingFrame struct {
+	Realm     string `json:"realm"`
+	Op        fsOp   `json:"op"`
+	Path      string `json:"path"`
+	Recursive bool   `json:"recursive,omitempty"`
+}
+
+// keyExchangeMsg carries one side's ephemeral X25519 public key. Everything
+// after the exchange -- every fsRequest/fsResponse and all file data -- is
+// ChaCha20-Poly1305 encrypted with the derived keys, since deskconn-router
+// terminates QUIC/TLS at each hop rather than tunneling it through, and
+// would otherwise see the plaintext it's relaying. Reused as-is for --mode
+// p2p (see filestreamencryption.go).
+type keyExchangeMsg struct {
+	PublicKey []byte `json:"public_key"`
+}
+
+// relayErrorMsg is deskconn-router's error frame shape (see writeRelayError
+// in deskconn-router's relay.go). The router can write one of these as the
+// very first reply on a client-opened stream -- before the device (and so
+// the key exchange) is ever reached -- e.g. when the realm is missing or
+// the target device isn't currently connected. quicClientKeyExchange checks
+// for it so that case surfaces as the router's actual message instead of a
+// confusing "invalid peer public key length: 0".
+type relayErrorMsg struct {
+	Error string `json:"error"`
+}
+
+// quicClientKeyExchange performs the client side of the per-stream key
+// exchange: send our ephemeral public key, receive the peer's, derive
+// session keys. Must be called immediately after the routing frame and
+// before anything else is sent on stream.
+func quicClientKeyExchange(stream net.Conn) (sendKey, receiveKey []byte, err error) {
+	publicKey, privateKey, err := CreateX25519KeyPair()
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := writeMsg(stream, keyExchangeMsg{PublicKey: publicKey}); err != nil {
+		return nil, nil, err
+	}
+
+	frame, err := readFrame(stream)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var relayErr relayErrorMsg
+	if json.Unmarshal(frame, &relayErr) == nil && relayErr.Error != "" {
+		return nil, nil, fmt.Errorf("%s", relayErr.Error) //nolint:err113
+	}
+
+	var peerKey keyExchangeMsg
+	if err := json.Unmarshal(frame, &peerKey); err != nil {
+		return nil, nil, err
+	}
+	if len(peerKey.PublicKey) != 32 {
+		return nil, nil, fmt.Errorf("invalid peer public key length: %d", len(peerKey.PublicKey))
+	}
+
+	return ClientKeyExchangeKeys(privateKey, peerKey.PublicKey)
+}
+
+// quicServerKeyExchange is quicClientKeyExchange's server-side counterpart:
+// receive the client's ephemeral public key, derive session keys, send back
+// our own public key.
+func quicServerKeyExchange(stream net.Conn) (sendKey, receiveKey []byte, err error) {
+	var clientKey keyExchangeMsg
+	if err := readMsg(stream, &clientKey); err != nil {
+		return nil, nil, err
+	}
+	if len(clientKey.PublicKey) != 32 {
+		return nil, nil, fmt.Errorf("invalid client public key length: %d", len(clientKey.PublicKey))
+	}
+
+	publicKey, sendKey, receiveKey, err := ServerKeyExchange(clientKey.PublicKey)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := writeMsg(stream, keyExchangeMsg{PublicKey: publicKey}); err != nil {
+		return nil, nil, err
+	}
+	return sendKey, receiveKey, nil
+}
+
+// HandleQUICStream serves a single QUIC stream: list/init are one-shot
+// requests that reply and return; read/write go to quicServeSession, which
+// keeps the stream open across many chunk requests from the same worker --
+// reopening a stream per chunk was measured to badly limit throughput on
+// real (non-loopback) links.
 func (d *Deskconn) HandleQUICStream(_ xconn.BaseSession, stream net.Conn) {
 	defer stream.Close()
 
-	var req streamRequest
-	if err := readMsg(stream, &req); err != nil {
+	// Leading routingFrame, present on every stream once it's reached here
+	// via the router -- see routingFrame's doc comment. Discarded.
+	var discard fsRequest
+	if err := readMsg(stream, &discard); err != nil {
 		return
 	}
 
-	homeDir, _ := os.UserHomeDir()
-	var resolvedPath string
-	if filepath.IsAbs(req.Path) {
-		resolvedPath = filepath.Clean(req.Path)
-	} else {
-		resolvedPath = filepath.Clean(filepath.Join(homeDir, req.Path))
+	sendKey, receiveKey, err := quicServerKeyExchange(stream)
+	if err != nil {
+		return
+	}
+
+	var req fsRequest
+	if err := readEncryptedMsg(stream, &req, receiveKey); err != nil {
+		return
 	}
 
 	switch req.Op {
-	case quicOpDownload:
-		serveDownload(stream, resolvedPath, req.Recursive)
-	case quicOpUpload:
-		receiveUpload(stream, resolvedPath)
-	default:
-		_ = writeMsg(stream, streamResponse{OK: false, Err: fmt.Sprintf("unknown op: %s", req.Op)})
+	case fsOpList:
+		quicServeList(stream, req, sendKey)
+	case fsOpInit:
+		quicServeInit(stream, req, sendKey)
+	case fsOpRead, fsOpWrite:
+		quicServeSession(stream, req, sendKey, receiveKey)
 	}
 }
 
-func serveDownload(stream net.Conn, resolvedPath string, recursive bool) {
-	info, err := os.Lstat(resolvedPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			_ = writeMsg(stream, streamResponse{OK: false,
-				Err: fmt.Sprintf("%s: no such file or directory", resolvedPath)})
-		} else {
-			_ = writeMsg(stream, streamResponse{OK: false, Err: err.Error()})
+// quicServeSession serves req and then any further read/write requests the
+// client sends on the same stream, one at a time, until the client closes
+// its side (a normal end of session, surfaced here as a read error) or a
+// transport failure occurs.
+func quicServeSession(stream net.Conn, req fsRequest, sendKey, receiveKey []byte) {
+	for {
+		var err error
+		switch req.Op {
+		case fsOpRead:
+			err = quicServeReadOnce(stream, req, sendKey)
+		case fsOpWrite:
+			err = quicServeWriteOnce(stream, req, sendKey, receiveKey)
+		default:
+			return
 		}
-		return
-	}
+		if err != nil {
+			return
+		}
 
-	if info.IsDir() && !recursive {
-		_ = writeMsg(stream, streamResponse{OK: false,
-			Err: fmt.Sprintf("%s: is a directory, use recursive flag", resolvedPath)})
-		return
+		if err := readEncryptedMsg(stream, &req, receiveKey); err != nil {
+			return
+		}
 	}
-
-	if err := writeMsg(stream, streamResponse{OK: true}); err != nil {
-		return
-	}
-
-	basePath := filepath.Dir(resolvedPath)
-	if info.IsDir() {
-		_ = sendDir(stream, resolvedPath, basePath)
-	} else {
-		_ = sendFile(stream, resolvedPath, basePath)
-	}
-	_ = writeMsg(stream, streamFileFrame{Type: quicFrameDone})
 }
 
-func walkAndSendDir(w io.Writer, dirPath, basePath string, sendFileFn func(io.Writer, string, string) error) error {
-	info, err := os.Lstat(dirPath)
+func quicServeList(stream net.Conn, req fsRequest, sendKey []byte) {
+	resolvedRoot, _, err := remoteRootAndBase(req.Path)
 	if err != nil {
-		return err
+		_ = writeEncryptedMsg(stream, fsResponse{Err: err.Error()}, sendKey)
+		return
 	}
-	relPath, _ := filepath.Rel(basePath, dirPath)
-	if err := writeMsg(w, streamFileFrame{
-		Type:    quicFrameHeader,
-		Name:    info.Name(),
-		RelPath: filepath.ToSlash(relPath),
-		Mode:    uint32(info.Mode().Perm()), //nolint:gosec
-		IsDir:   true,
-	}); err != nil {
-		return err
-	}
-	entries, err := os.ReadDir(dirPath)
+	entries, err := buildManifest(resolvedRoot, req.Recursive)
 	if err != nil {
+		_ = writeEncryptedMsg(stream, fsResponse{Err: err.Error()}, sendKey)
+		return
+	}
+	_ = writeEncryptedMsg(stream, fsResponse{OK: true, Entries: entries}, sendKey)
+}
+
+// quicServeReadOnce serves one byte-range read. It only returns a non-nil
+// error for a transport failure that should end the session; an
+// application-level failure (bad path, etc.) is reported to the client via
+// fsResponse.Err and treated as handled.
+func quicServeReadOnce(stream net.Conn, req fsRequest, sendKey []byte) error {
+	_, basePath, err := remoteRootAndBase(req.Path)
+	if err != nil {
+		return writeEncryptedMsg(stream, fsResponse{Err: err.Error()}, sendKey)
+	}
+	absPath := filepath.Join(basePath, filepath.FromSlash(req.RelPath))
+
+	f, err := os.Open(absPath) //nolint:gosec
+	if err != nil {
+		return writeEncryptedMsg(stream, fsResponse{Err: err.Error()}, sendKey)
+	}
+	defer f.Close()
+
+	if err := writeEncryptedMsg(stream, fsResponse{OK: true}, sendKey); err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		entryPath := filepath.Join(dirPath, entry.Name())
-		if entry.IsDir() {
-			if err := walkAndSendDir(w, entryPath, basePath, sendFileFn); err != nil {
+
+	section := io.NewSectionReader(f, req.Offset, req.Length)
+	return copyEncrypted(stream, section, req.Length, sendKey, nil)
+}
+
+func quicServeInit(stream net.Conn, req fsRequest, sendKey []byte) {
+	resolvedRoot, _, err := remoteRootAndBase(req.Path)
+	if err != nil {
+		_ = writeEncryptedMsg(stream, fsResponse{Err: err.Error()}, sendKey)
+		return
+	}
+	rootIsDir := isRootDir(resolvedRoot, req.SourceIsDir, req.TargetIsDirHint)
+	if err := materializeTargets(req.Entries, resolvedRoot, rootIsDir); err != nil {
+		_ = writeEncryptedMsg(stream, fsResponse{Err: err.Error()}, sendKey)
+		return
+	}
+	_ = writeEncryptedMsg(stream, fsResponse{OK: true}, sendKey)
+}
+
+// quicServeWriteOnce serves one byte-range write. Same error-return
+// convention as quicServeReadOnce.
+func quicServeWriteOnce(stream net.Conn, req fsRequest, sendKey, receiveKey []byte) error {
+	resolvedRoot, _, err := remoteRootAndBase(req.Path)
+	if err != nil {
+		return writeEncryptedMsg(stream, fsResponse{Err: err.Error()}, sendKey)
+	}
+	rootIsDir := isRootDir(resolvedRoot, req.SourceIsDir, req.TargetIsDirHint)
+	// See serveWebRTCWriteOnce for why passing req.RelPath as sourceRoot is safe.
+	dest := resolveDestPath(resolvedRoot, rootIsDir, req.RelPath, req.RelPath)
+
+	f, err := os.OpenFile(dest, os.O_WRONLY, 0) //nolint:gosec
+	if err != nil {
+		return writeEncryptedMsg(stream, fsResponse{Err: err.Error()}, sendKey)
+	}
+	defer f.Close()
+
+	if err := writeEncryptedMsg(stream, fsResponse{OK: true}, sendKey); err != nil {
+		return err
+	}
+
+	ow := io.NewOffsetWriter(f, req.Offset)
+	if err := copyDecrypted(ow, stream, req.Length, receiveKey, nil); err != nil {
+		return err
+	}
+	return writeEncryptedMsg(stream, fsResponse{OK: true}, sendKey)
+}
+
+// encChunkSize is the plaintext size of each encrypted file-data message,
+// set near the maxMsgSize ceiling QUIC streams have no hard transport limit
+// requiring anything smaller.
+const encChunkSize = 1000000
+
+// copyEncrypted reads exactly n plaintext bytes from src, encrypting and
+// framing each chunk as it goes, reporting progress as real (plaintext)
+// bytes processed.
+func copyEncrypted(dst io.Writer, src io.Reader, n int64, key []byte, progress *transferProgress) error {
+	buf := make([]byte, encChunkSize)
+	var written int64
+	for written < n {
+		toRead := int64(len(buf))
+		if remaining := n - written; remaining < toRead {
+			toRead = remaining
+		}
+		rn, rerr := io.ReadFull(src, buf[:toRead])
+		if rn > 0 {
+			ciphertext, err := EncryptPayload(buf[:rn], key)
+			if err != nil {
 				return err
 			}
-		} else {
-			if err := sendFileFn(w, entryPath, basePath); err != nil {
+			if err := writeFrame(dst, ciphertext); err != nil {
 				return err
 			}
+			written += int64(rn)
+			if progress != nil {
+				progress.add(int64(rn))
+			}
+		}
+		if rerr != nil {
+			return rerr
 		}
 	}
 	return nil
 }
 
-func sendDir(w io.Writer, dirPath, basePath string) error {
-	return walkAndSendDir(w, dirPath, basePath, sendFile)
+// copyDecrypted is copyEncrypted's counterpart: reads encrypted chunks from
+// src until exactly n plaintext bytes have been written to dst.
+func copyDecrypted(dst io.Writer, src io.Reader, n int64, key []byte, progress *transferProgress) error {
+	var written int64
+	for written < n {
+		ciphertext, err := readFrame(src)
+		if err != nil {
+			return err
+		}
+		plaintext, err := DecryptPayload(ciphertext, key)
+		if err != nil {
+			return err
+		}
+		wn, werr := dst.Write(plaintext)
+		written += int64(wn)
+		if progress != nil {
+			progress.add(int64(wn))
+		}
+		if werr != nil {
+			return werr
+		}
+	}
+	return nil
 }
 
-func writeFileToStream(w io.Writer, filePath, basePath string,
-	copyFn func(io.Writer, *os.File, os.FileInfo) error) error {
-	info, err := os.Lstat(filePath)
+func quicRequest(sess xconn.MultiplexedSession, realm string, req fsRequest) (*fsResponse, error) {
+	stream, err := sess.OpenStream()
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+
+	route := routingFrame{Realm: realm, Op: req.Op, Path: req.Path, Recursive: req.Recursive}
+	if err := writeMsg(stream, route); err != nil {
+		return nil, err
+	}
+
+	sendKey, receiveKey, err := quicClientKeyExchange(stream)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := writeEncryptedMsg(stream, req, sendKey); err != nil {
+		return nil, err
+	}
+
+	var resp fsResponse
+	if err := readEncryptedMsg(stream, &resp, receiveKey); err != nil {
+		return nil, err
+	}
+	if !resp.OK {
+		return nil, responseErr(resp)
+	}
+	return &resp, nil
+}
+
+// quicReadWorker opens one stream on sess (the same connection shared by
+// every parallel worker and the control call) and owns it for the lifetime
+// of the goroutine running it, reusing it across every job pulled from
+// jobs.
+func quicReadWorker(sess xconn.MultiplexedSession, realm, rootArg string, jobs <-chan transferChunk, localPath string,
+	localIsDir bool, sourceRoot string, progress *transferProgress) error {
+	stream, err := sess.OpenStream()
 	if err != nil {
 		return err
 	}
-	relPath, _ := filepath.Rel(basePath, filePath)
-	if err := writeMsg(w, streamFileFrame{
-		Type:    quicFrameHeader,
-		Name:    info.Name(),
-		RelPath: filepath.ToSlash(relPath),
-		Size:    info.Size(),
-		Mode:    uint32(info.Mode().Perm()), //nolint:gosec
-	}); err != nil {
+	defer stream.Close()
+
+	if err := writeMsg(stream, routingFrame{Realm: realm, Op: fsOpRead, Path: rootArg}); err != nil {
 		return err
 	}
-	f, err := os.Open(filePath) //nolint:gosec
+	sendKey, receiveKey, err := quicClientKeyExchange(stream)
+	if err != nil {
+		return err
+	}
+
+	for chunk := range jobs {
+		if err := quicReadOneChunk(stream, sendKey, receiveKey, rootArg, chunk, localPath, localIsDir, sourceRoot,
+			progress); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func quicReadOneChunk(stream net.Conn, sendKey, receiveKey []byte, rootArg string, chunk transferChunk,
+	localPath string, localIsDir bool, sourceRoot string, progress *transferProgress) error {
+	req := fsRequest{Op: fsOpRead, Path: rootArg, RelPath: chunk.RelPath, Offset: chunk.Offset, Length: chunk.Length}
+	if err := writeEncryptedMsg(stream, req, sendKey); err != nil {
+		return err
+	}
+
+	var resp fsResponse
+	if err := readEncryptedMsg(stream, &resp, receiveKey); err != nil {
+		return err
+	}
+	if !resp.OK {
+		return responseErr(resp)
+	}
+
+	dest := resolveDestPath(localPath, localIsDir, sourceRoot, chunk.RelPath)
+	f, err := os.OpenFile(dest, os.O_WRONLY, 0) //nolint:gosec
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	return copyFn(w, f, info)
+
+	ow := io.NewOffsetWriter(f, chunk.Offset)
+	return copyDecrypted(ow, stream, chunk.Length, receiveKey, progress)
 }
 
-func sendFile(w io.Writer, filePath, basePath string) error {
-	return writeFileToStream(w, filePath, basePath, func(dst io.Writer, src *os.File, _ os.FileInfo) error {
-		_, err := io.Copy(dst, src)
-		return err
-	})
-}
-
-// PushFilesQUIC uploads a local file/directory to the device over a QUIC stream.
-// The stream is opened on sess and the router relays it to the target device.
-func PushFilesQUIC(sess *xconn.QUICSession, localPath, remotePath string, recursive bool) error {
-	localInfo, err := os.Lstat(localPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("%s: no such file or directory", localPath)
-		}
-		return err
-	}
-	if localInfo.IsDir() && !recursive {
-		return fmt.Errorf("%s: is a directory, use -r flag", localPath)
-	}
-
+// quicWriteWorker is the upload counterpart to quicReadWorker: it opens one
+// stream on the shared sess and owns it for the lifetime of the goroutine
+// running it, reusing it across every job pulled from jobs.
+func quicWriteWorker(sess xconn.MultiplexedSession, realm, rootArg string, jobs <-chan transferChunk, localBase string,
+	sourceIsDir, targetIsDirHint bool, progress *transferProgress) error {
 	stream, err := sess.OpenStream()
 	if err != nil {
-		return fmt.Errorf("failed to open quic stream: %w", err)
+		return err
 	}
 	defer stream.Close()
 
-	if err := writeMsg(stream, streamRequest{Realm: sess.Details().Realm(), Op: quicOpUpload,
-		Path: remotePath}); err != nil {
-		return fmt.Errorf("failed to send upload request: %w", err)
+	if err := writeMsg(stream, routingFrame{Realm: realm, Op: fsOpWrite, Path: rootArg}); err != nil {
+		return err
 	}
-
-	basePath := filepath.Dir(localPath)
-	if localInfo.IsDir() {
-		err = clientSendDir(stream, localPath, basePath)
-	} else {
-		err = clientSendFile(stream, localPath, basePath)
-	}
+	sendKey, receiveKey, err := quicClientKeyExchange(stream)
 	if err != nil {
 		return err
 	}
 
-	if err := writeMsg(stream, streamFileFrame{Type: quicFrameDone}); err != nil {
-		return err
+	for chunk := range jobs {
+		if err := quicWriteOneChunk(stream, sendKey, receiveKey, rootArg, chunk, localBase, sourceIsDir,
+			targetIsDirHint, progress); err != nil {
+			return err
+		}
 	}
-	// Close the write side (sends FIN to the router) so the bridge sees EOF
-	// and propagates the close to the device. Then drain reads until the router
-	// closes its write side back to us, which confirms the device finished
-	// processing. Without this, quicSess.Close() can race the device mid-write.
-	_ = stream.Close()
-	_, _ = io.Copy(io.Discard, stream)
 	return nil
 }
 
-// PullFilesQUIC downloads a remote file/directory from the device over a QUIC stream.
-// The stream is opened on sess and the router relays it to the target device.
-func PullFilesQUIC(sess *xconn.QUICSession, remotePath, localPath string, recursive bool) error {
-	stream, err := sess.OpenStream()
+func quicWriteOneChunk(stream net.Conn, sendKey, receiveKey []byte, rootArg string, chunk transferChunk,
+	localBase string, sourceIsDir, targetIsDirHint bool, progress *transferProgress) error {
+	req := fsRequest{
+		Op: fsOpWrite, Path: rootArg, RelPath: chunk.RelPath, Offset: chunk.Offset, Length: chunk.Length,
+		SourceIsDir: sourceIsDir, TargetIsDirHint: targetIsDirHint,
+	}
+	if err := writeEncryptedMsg(stream, req, sendKey); err != nil {
+		return err
+	}
+
+	var ack fsResponse
+	if err := readEncryptedMsg(stream, &ack, receiveKey); err != nil {
+		return err
+	}
+	if !ack.OK {
+		return responseErr(ack)
+	}
+
+	absLocal := filepath.Join(localBase, filepath.FromSlash(chunk.RelPath))
+	f, err := os.Open(absLocal) //nolint:gosec
 	if err != nil {
-		return fmt.Errorf("failed to open quic stream: %w", err)
+		return err
 	}
-	defer stream.Close()
+	defer f.Close()
 
-	if err := writeMsg(stream, streamRequest{Realm: sess.Details().Realm(), Op: quicOpDownload,
-		Path: remotePath, Recursive: recursive}); err != nil {
-		return fmt.Errorf("failed to send download request: %w", err)
-	}
-
-	var resp streamResponse
-	if err := readMsg(stream, &resp); err != nil {
-		return fmt.Errorf("failed to read server response: %w", err)
-	}
-	if !resp.OK {
-		return fmt.Errorf("%s", resp.Err) //nolint:err113
+	section := io.NewSectionReader(f, chunk.Offset, chunk.Length)
+	if err := copyEncrypted(stream, section, chunk.Length, sendKey, progress); err != nil {
+		return err
 	}
 
-	localInfo, statErr := os.Lstat(localPath)
-	localIsDir := statErr == nil && localInfo.IsDir()
+	var final fsResponse
+	if err := readEncryptedMsg(stream, &final, receiveKey); err != nil {
+		return err
+	}
+	if !final.OK {
+		return responseErr(final)
+	}
+	return nil
+}
 
-	var (
-		sourceRoot      string
-		currentFile     *os.File
-		currentName     string
-		currentSize     int64
-		currentReceived int64
-		currentStart    time.Time
+// DownloadFilesQUIC downloads remotePath (a file, or if recursive a
+// directory) from the device over parallel QUIC streams, all opened on
+// sess's single shared connection (numWorkers <= 0 uses the default). realm
+// is needed by deskconn-router to route each stream (see routingFrame).
+func DownloadFilesQUIC(sess xconn.MultiplexedSession, realm, remotePath, localPath string,
+	recursive bool, numWorkers int) error {
+	return downloadFiles(remotePath, localPath, recursive, numWorkers,
+		func(req fsRequest) (*fsResponse, error) { return quicRequest(sess, realm, req) },
+		func(sourceRoot string, localIsDir bool, progress *transferProgress) func(jobs <-chan transferChunk) error {
+			return func(jobs <-chan transferChunk) error {
+				return quicReadWorker(sess, realm, remotePath, jobs, localPath, localIsDir, sourceRoot, progress)
+			}
+		},
 	)
-	defer func() {
-		if currentFile != nil {
-			_ = currentFile.Close()
-		}
-	}()
-
-	for {
-		var frame streamFileFrame
-		if err := readMsg(stream, &frame); err != nil {
-			return fmt.Errorf("failed to read file frame: %w", err)
-		}
-		if frame.Type == quicFrameDone {
-			if currentFile != nil {
-				_ = currentFile.Close()
-				currentFile = nil
-				printProgress(currentName, currentSize, currentSize, time.Since(currentStart))
-				fmt.Fprintln(os.Stderr)
-			}
-			return nil
-		}
-
-		if currentFile != nil {
-			_ = currentFile.Close()
-			currentFile = nil
-			printProgress(currentName, currentSize, currentSize, time.Since(currentStart))
-			fmt.Fprintln(os.Stderr)
-		}
-
-		if sourceRoot == "" {
-			sourceRoot = frame.RelPath
-		}
-
-		var destPath string
-		if localIsDir {
-			destPath = filepath.Join(localPath, filepath.FromSlash(frame.RelPath))
-		} else {
-			suffix := strings.TrimPrefix(frame.RelPath, sourceRoot)
-			destPath = filepath.Clean(localPath + filepath.FromSlash(suffix))
-		}
-
-		if frame.IsDir {
-			perm := os.FileMode(frame.Mode)
-			if perm == 0 {
-				perm = 0755
-			}
-			if err := os.MkdirAll(destPath, perm|0700); err != nil {
-				return err
-			}
-			fmt.Fprintf(os.Stderr, "%s/\n", frame.Name)
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil { //nolint:gosec
-			return err
-		}
-
-		perm := os.FileMode(frame.Mode)
-		if perm == 0 {
-			perm = 0600
-		}
-		f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm) //nolint:gosec
-		if err != nil && os.IsPermission(err) {
-			if rmErr := os.Remove(destPath); rmErr == nil {
-				f, err = os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm) //nolint:gosec
-			}
-		}
-		if err != nil {
-			return err
-		}
-
-		currentFile = f
-		currentName = frame.Name
-		currentSize = frame.Size
-		currentReceived = 0
-		currentStart = time.Now()
-		printProgress(currentName, 0, currentSize, 0)
-
-		buf := make([]byte, fileChunkSize)
-		for currentReceived < frame.Size {
-			toRead := int64(len(buf))
-			if frame.Size-currentReceived < toRead {
-				toRead = frame.Size - currentReceived
-			}
-			n, readErr := stream.Read(buf[:toRead])
-			if n > 0 {
-				if _, err := currentFile.Write(buf[:n]); err != nil {
-					return err
-				}
-				currentReceived += int64(n)
-				printProgress(currentName, currentReceived, currentSize, time.Since(currentStart))
-			}
-			if readErr != nil {
-				if errors.Is(readErr, io.EOF) {
-					break
-				}
-				return readErr
-			}
-		}
-	}
 }
 
-func clientSendDir(w io.Writer, dirPath, basePath string) error {
-	return walkAndSendDir(w, dirPath, basePath, clientSendFile)
-}
-
-func clientSendFile(w io.Writer, filePath, basePath string) error {
-	return writeFileToStream(w, filePath, basePath, func(dst io.Writer, src *os.File, info os.FileInfo) error {
-		start := time.Now()
-		written := int64(0)
-		buf := make([]byte, fileChunkSize)
-		for {
-			n, readErr := src.Read(buf)
-			if n > 0 {
-				if _, err := dst.Write(buf[:n]); err != nil {
-					return err
-				}
-				written += int64(n)
-				printProgress(info.Name(), written, info.Size(), time.Since(start))
+// UploadFilesQUIC uploads localPath (a file, or if recursive a directory)
+// to the device over parallel QUIC streams, all opened on sess's single
+// shared connection (numWorkers <= 0 uses the default). realm is needed by
+// deskconn-router to route each stream (see routingFrame).
+func UploadFilesQUIC(sess xconn.MultiplexedSession, realm, localPath, remotePath string,
+	recursive bool, numWorkers int) error {
+	localBase := filepath.Dir(localPath)
+	return uploadFiles(localPath, remotePath, recursive, numWorkers,
+		func(req fsRequest) (*fsResponse, error) { return quicRequest(sess, realm, req) },
+		func(sourceIsDir, targetIsDirHint bool, progress *transferProgress) func(jobs <-chan transferChunk) error {
+			return func(jobs <-chan transferChunk) error {
+				return quicWriteWorker(sess, realm, remotePath, jobs, localBase, sourceIsDir, targetIsDirHint,
+					progress)
 			}
-			if readErr == io.EOF {
-				break
-			}
-			if readErr != nil {
-				return readErr
-			}
-		}
-		printProgress(info.Name(), info.Size(), info.Size(), time.Since(start))
-		fmt.Fprintln(os.Stderr)
-		return nil
-	})
-}
-
-func receiveUpload(stream net.Conn, destRoot string) {
-	var currentFile *os.File
-	defer func() {
-		if currentFile != nil {
-			_ = currentFile.Close()
-		}
-	}()
-
-	destInfo, _ := os.Lstat(destRoot)
-	destIsDir := destInfo != nil && destInfo.IsDir()
-	recursiveTransfer := false
-
-	for {
-		var frame streamFileFrame
-		if err := readMsg(stream, &frame); err != nil {
-			return
-		}
-		if frame.Type == quicFrameDone {
-			return
-		}
-
-		if currentFile != nil {
-			_ = currentFile.Close()
-			currentFile = nil
-		}
-
-		destPath := filepath.Join(destRoot, filepath.FromSlash(frame.RelPath))
-		if !destIsDir && !recursiveTransfer && !frame.IsDir {
-			destPath = destRoot
-		}
-
-		if frame.IsDir {
-			recursiveTransfer = true
-			perm := os.FileMode(frame.Mode)
-			if perm == 0 {
-				perm = 0755
-			}
-			_ = os.MkdirAll(destPath, perm|0700)
-			continue
-		}
-
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil { //nolint:gosec
-			_, _ = io.CopyN(io.Discard, stream, frame.Size)
-			continue
-		}
-
-		perm := os.FileMode(frame.Mode)
-		if perm == 0 {
-			perm = 0600
-		}
-		f, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm) //nolint:gosec
-		if err != nil {
-			_, _ = io.CopyN(io.Discard, stream, frame.Size)
-			continue
-		}
-		if _, err = io.CopyN(f, stream, frame.Size); err != nil {
-			_ = f.Close()
-			return
-		}
-		_ = f.Close()
-	}
+		},
+	)
 }
