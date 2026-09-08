@@ -183,7 +183,12 @@ func Login(session *xconn.Session, username, otp string) ([]Device, error) {
 		return nil, fmt.Errorf("missing expires_at in login verify response: %w", err)
 	}
 
-	accountGetResp := session.Call(ProcedureAccountGet).Do()
+	cloudSession, err := ConnectCloudCryptosign(username, priv)
+	if err != nil {
+		return nil, err
+	}
+
+	accountGetResp := cloudSession.Call(ProcedureAccountGet).Do()
 	if accountGetResp.Err != nil {
 		return nil, fmt.Errorf("failed to get account: %w", accountGetResp.Err)
 	}
@@ -203,7 +208,7 @@ func Login(session *xconn.Session, username, otp string) ([]Device, error) {
 		return nil, fmt.Errorf("failed to write file: %w", err)
 	}
 
-	devices, err := FetchDevicesFromCloud(cfgDirectory)
+	devices, err := fetchDevices(cloudSession)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch devices: %w", err)
 	}
@@ -290,6 +295,10 @@ func ConnectCloudRealm(cfgDirectory string) (*xconn.Session, error) {
 		return nil, err
 	}
 
+	return ConnectCloudCryptosign(authid, privKey)
+}
+
+func ConnectCloudCryptosign(authid, privKey string) (*xconn.Session, error) {
 	authenticator, err := xconnauth.NewCryptoSignAuthenticator(authid, privKey, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create authenticator: %w", err)
