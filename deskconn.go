@@ -20,7 +20,6 @@ const (
 	ProcedureScreenBrightnessSet = "io.xconn.deskconn.deskconnd.screen.brightness.set"
 	ProcedureScreenLock          = "io.xconn.deskconn.deskconnd.screen.lock"
 	ProcedureScreenIsLocked      = "io.xconn.deskconn.deskconnd.screen.islocked"
-	ProcedureShell               = "io.xconn.deskconn.deskconnd.shell"
 	ProcedureShellIsBusy         = "io.xconn.deskconn.deskconnd.shell.isbusy"
 	ProcedureAgentForward        = "io.xconn.deskconn.deskconnd.agent.forward"
 	ProcedureExec                = "io.xconn.deskconn.deskconnd.exec"
@@ -123,7 +122,6 @@ func (d *Deskconn) StartIndexer(ctx context.Context) {
 func (d *Deskconn) Register(session *xconn.Session) error {
 	handlers := map[string]xconn.InvocationHandler{
 		ProcedureKeyExchange:     d.handleKeyExchange,
-		ProcedureShell:           d.shellSession.handleShell(),
 		ProcedureShellIsBusy:     d.shellSession.handleShellIsBusy(),
 		ProcedureExec:            d.shellSession.handleExec(),
 		ProcedureFileBrowse:      d.handleFileBrowse,

@@ -178,18 +178,16 @@ func (a *agentForwardSessions) stop(callerID uint64) {
 	}
 }
 
-// socketPath returns the forwarded agent socket path currently owned by callerID, if agent
-// forwarding is active for it. Used when spawning a new PTY for that caller to set
-// SSH_AUTH_SOCK.
-func (a *agentForwardSessions) socketPath(callerID uint64) (string, bool) {
+// socketPathByAuthID returns the forwarded agent socket path currently
+// active for authID, if any.
+func (a *agentForwardSessions) socketPathByAuthID(authID string) (string, bool) {
 	a.Lock()
 	defer a.Unlock()
-	for _, sess := range a.sessions {
-		if sess.owns(callerID) {
-			return sess.sockPath, true
-		}
+	s, ok := a.sessions[authID]
+	if !ok {
+		return "", false
 	}
-	return "", false
+	return s.sockPath, true
 }
 
 // handleAgentForward implements ProcedureAgentForward: on the first progressive message it

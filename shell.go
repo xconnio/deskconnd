@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/hex"
 	"fmt"
 	"math"
@@ -37,11 +36,36 @@ type migrationToken struct {
 	issuedAt time.Time
 }
 
-type ptySession struct {
-	mu      sync.Mutex
+// shellTransport is how a running PTY's output gets back to whoever's
+// attached to it, and is the one thing that changes on a live migration.
+type shellTransport interface {
+	// writeOutput encrypts and delivers one chunk of PTY output.
+	writeOutput(plaintext []byte) error
+	// close signals end-of-output on this transport.
+	close() error
+}
+
+// wampShellTransport is handleExec's transport: WAMP progressive-call SendProgress.
+type wampShellTransport struct {
 	inv     *xconn.Invocation
 	sendKey []byte
-	authID  string
+}
+
+func (t *wampShellTransport) writeOutput(plaintext []byte) error {
+	encrypted, err := EncryptPayload(plaintext, t.sendKey)
+	if err != nil {
+		return err
+	}
+	return t.inv.SendProgress([]any{encrypted}, nil)
+}
+
+func (t *wampShellTransport) close() error {
+	return t.inv.SendProgress(nil, nil)
+}
+
+type ptySession struct {
+	mu        sync.Mutex
+	transport shellTransport
 }
 
 type interactiveShellSession struct {
@@ -116,25 +140,21 @@ func (p *interactiveShellSession) setupEncryption(inv *xconn.Invocation, clientP
 	return enc, nil
 }
 
-// sendMigrationToken generates a fresh migration token for shellID and delivers it to the
-// client encrypted with the session's own sendKey, via a "MIGRATE:" marker.
-func (p *interactiveShellSession) sendMigrationToken(inv *xconn.Invocation, shellID string, sendKey []byte) {
+// issueMigrationToken generates and stores a fresh migration token for
+// shellID, returning it for the caller to deliver however its transport
+// does control messages.
+func (p *interactiveShellSession) issueMigrationToken(shellID string) string {
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
-		return
+		return ""
 	}
 	token := hex.EncodeToString(tokenBytes)
-
-	encToken, err := EncryptPayload([]byte(token), sendKey)
-	if err != nil {
-		return
-	}
 
 	p.Lock()
 	p.migrationTokens[shellID] = migrationToken{value: token, issuedAt: time.Now()}
 	p.Unlock()
 
-	_ = inv.SendProgress([]any{append([]byte("MIGRATE:"), encToken...)}, nil)
+	return token
 }
 
 func (p *interactiveShellSession) cleanupShell(shellID string, inv *xconn.Invocation) {
@@ -147,6 +167,20 @@ func (p *interactiveShellSession) cleanupShell(shellID string, inv *xconn.Invoca
 	delete(p.migrationTokens, shellID)
 	delete(p.encKeys, shellID)
 	delete(p.invShellIDs, inv)
+	delete(p.pids, shellID)
+	p.Unlock()
+}
+
+// cleanupShellID is cleanupShell's counterpart for the raw-stream shell,
+// which has no WAMP invocation to also clear from invShellIDs/encKeys.
+func (p *interactiveShellSession) cleanupShellID(shellID string) {
+	p.Lock()
+	if stored, ok := p.ptmx[shellID]; ok {
+		_ = stored.Close()
+		delete(p.ptmx, shellID)
+	}
+	delete(p.sessions, shellID)
+	delete(p.migrationTokens, shellID)
 	delete(p.pids, shellID)
 	p.Unlock()
 }
@@ -218,9 +252,10 @@ func (p *interactiveShellSession) handleShellIsBusy() func(_ context.Context,
 	}
 }
 
-// resolveStartDir picks the start dir: "prev-shell" kwarg's live cwd, or home.
-func (p *interactiveShellSession) resolveStartDir(inv *xconn.Invocation) (string, error) {
-	if prevShellID := inv.KwargStringOr("prev-shell", ""); prevShellID != "" {
+// resolveStartDir picks the start dir: prevShellID's live cwd if given and
+// still running, or home.
+func (p *interactiveShellSession) resolveStartDir(prevShellID string) (string, error) {
+	if prevShellID != "" {
 		if dir, err := p.cwdForShell(prevShellID); err == nil {
 			return dir, nil
 		}
@@ -233,14 +268,14 @@ func (p *interactiveShellSession) resolveStartDir(inv *xconn.Invocation) (string
 	return homeDir, nil
 }
 
-// agentSockForCaller returns the forwarded SSH agent socket path for callerID, or "" if
-// agent forwarding isn't active for it (including when no Deskconn owns this session, e.g.
-// in tests that construct interactiveShellSession directly).
-func (p *interactiveShellSession) agentSockForCaller(callerID uint64) string {
-	if p.agentForward == nil {
+// agentSockForAuthID returns the forwarded SSH agent socket path for
+// authID (self-reported by the client in shellControlMsg), or "" if agent
+// forwarding isn't active for it.
+func (p *interactiveShellSession) agentSockForAuthID(authID string) string {
+	if p.agentForward == nil || authID == "" {
 		return ""
 	}
-	path, ok := p.agentForward.socketPath(callerID)
+	path, ok := p.agentForward.socketPathByAuthID(authID)
 	if !ok {
 		return ""
 	}
@@ -250,29 +285,32 @@ func (p *interactiveShellSession) agentSockForCaller(callerID uint64) string {
 // agentSockPath, when non-empty, is exported as SSH_AUTH_SOCK in the spawned process's
 // environment so tools run in the shell (git, ssh, ...) can use the caller's forwarded
 // local SSH agent — see RunAgentForward/handleAgentForward in agentforward.go.
-func (p *interactiveShellSession) startPtySession(inv *xconn.Invocation, sendKey []byte,
-	shellID string, agentSockPath string, command string, args ...string) (*os.File, error) {
+//
+// ws sets the PTY's initial size via pty.StartWithSize rather than a separate
+// pty.Setsize call after: Setsize racing the output-reader goroutine's first
+// Read is a genuine data race (both touch the os.File's internal fd state).
+func (p *interactiveShellSession) startPtySession(transport shellTransport, shellID, agentSockPath,
+	prevShellID, command string, ws *pty.Winsize, args ...string) (*os.File, error) {
 	cmd := exec.Command(command, args...)
 	if agentSockPath != "" {
 		cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+agentSockPath)
 	}
 
-	dir, err := p.resolveStartDir(inv)
+	dir, err := p.resolveStartDir(prevShellID)
 	if err != nil {
 		return nil, err
 	}
 	cmd.Dir = dir
 
-	ptmx, err := pty.Start(cmd)
+	ptmx, err := pty.StartWithSize(cmd, ws)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start PTY: %w", err)
 	}
 
-	ps := &ptySession{inv: inv, sendKey: sendKey, authID: inv.CallerAuthID()}
+	ps := &ptySession{transport: transport}
 	p.Lock()
 	p.ptmx[shellID] = ptmx
 	p.sessions[shellID] = ps
-	p.invShellIDs[inv] = shellID
 	p.pids[shellID] = cmd.Process.Pid
 	p.Unlock()
 
@@ -300,20 +338,17 @@ func (p *interactiveShellSession) startOutputReader(ptmx *os.File, ps *ptySessio
 	for {
 		n, err := ptmx.Read(buf)
 		ps.mu.Lock()
-		inv := ps.inv
-		sendKey := ps.sendKey
+		transport := ps.transport
 		ps.mu.Unlock()
 
 		if n > 0 {
-			encrypted, encErr := EncryptPayload(buf[:n], sendKey)
-			if encErr != nil {
-				_ = inv.SendProgress(nil, nil)
+			if werr := transport.writeOutput(buf[:n]); werr != nil {
+				_ = transport.close()
 				return
 			}
-			_ = inv.SendProgress([]any{encrypted}, nil)
 		}
 		if err != nil {
-			_ = inv.SendProgress(nil, nil)
+			_ = transport.close()
 			return
 		}
 	}
@@ -348,149 +383,6 @@ func (p *interactiveShellSession) decryptProgress(payload []byte, shellID string
 		return nil, "", nil, xconn.NewInvocationError(ErrInvalidArgument, "missing encryption key")
 	}
 	return nil, "", nil, xconn.NewInvocationError(ErrOperationFailed, "failed to decrypt")
-}
-
-func (p *interactiveShellSession) handleShell() func(_ context.Context,
-	inv *xconn.Invocation) *xconn.InvocationResult {
-	return func(_ context.Context, inv *xconn.Invocation) *xconn.InvocationResult {
-		shellID := p.shellIDForInv(inv)
-
-		p.Lock()
-		enc := p.encKeys[shellID]
-		p.Unlock()
-
-		var exists bool
-		var ptmx *os.File
-		if inv.Progress() {
-			payload, err := inv.ArgBytes(0)
-			if err != nil {
-				return xconn.NewInvocationError(ErrInvalidArgument, err.Error())
-			}
-
-			keyMarker := []byte(":KEY:")
-			keyIdx := bytes.Index(payload, keyMarker)
-			if keyIdx >= 0 {
-				caller := inv.Caller()
-				// First message for a new shell: generate a unique ID.
-				p.Lock()
-				shellID = p.generateShellID(caller)
-				p.invShellIDs[inv] = shellID
-				p.Unlock()
-
-				// Embed the shell ID in the KEY response only for non-first shells so
-				// the client can use it as a prefix. The first shell uses the old KEY format
-				// for backwards compatibility with old clients.
-				callerStr := fmt.Sprintf("%d", caller)
-				var invErr *xconn.InvocationResult
-				enc, invErr = p.setupEncryption(inv, payload[keyIdx+len(keyMarker):], shellID, shellID != callerStr)
-				if invErr != nil {
-					return invErr
-				}
-				p.sendMigrationToken(inv, shellID, enc.sendKey)
-				payload = payload[:keyIdx]
-				exists = false
-			} else {
-				var invErr *xconn.InvocationResult
-				payload, shellID, enc, invErr = p.decryptProgress(payload, shellID, enc)
-				if invErr != nil {
-					return invErr
-				}
-				p.Lock()
-				ptmx, exists = p.ptmx[shellID]
-				p.Unlock()
-			}
-
-			if bytes.HasPrefix(payload, []byte("SIZE:")) {
-				var cols, rows int
-				n, _ := fmt.Sscanf(string(payload), "SIZE:%d:%d", &cols, &rows)
-				if n == 2 {
-					if cols < 0 || cols > math.MaxUint16 || rows < 0 || rows > math.MaxUint16 {
-						return xconn.NewInvocationError(ErrInvalidArgument, "invalid size")
-					}
-					if !exists {
-						if oldSessionID, err := inv.KwargUInt64("session-id"); err == nil {
-							encMigrate, migrateErr := inv.KwargBytes("migrate")
-							oldShellID := fmt.Sprintf("%d", oldSessionID)
-							p.Lock()
-							oldPtmx, ptmxOk := p.ptmx[oldShellID]
-							oldPS, psOk := p.sessions[oldShellID]
-							oldEnc, oldEncOk := p.encKeys[oldShellID]
-							expectedToken, tokenOk := p.migrationTokens[oldShellID]
-							if ptmxOk && psOk && oldEncOk {
-								var validToken bool
-								if migrateErr == nil && tokenOk && time.Since(expectedToken.issuedAt) <= migrationTokenTTL {
-									if plaintext, derr := DecryptPayload(encMigrate, oldEnc.sendKey); derr == nil {
-										validToken = subtle.ConstantTimeCompare(
-											plaintext, []byte(expectedToken.value)) == 1
-									}
-								}
-								sameCaller := oldPS.authID != "" && oldPS.authID == inv.CallerAuthID()
-								if !validToken || !sameCaller {
-									p.Unlock()
-									return xconn.NewInvocationError(ErrNotAuthorized, "invalid migration token")
-								}
-								delete(p.migrationTokens, oldShellID)
-								oldPS.mu.Lock()
-								oldInv := oldPS.inv
-								oldPS.inv = inv
-								oldPS.sendKey = enc.sendKey
-								oldPS.mu.Unlock()
-								delete(p.ptmx, oldShellID)
-								delete(p.sessions, oldShellID)
-								delete(p.encKeys, oldShellID)
-								for oldCallInv, id := range p.invShellIDs {
-									if id == oldShellID {
-										delete(p.invShellIDs, oldCallInv)
-										break
-									}
-								}
-								p.ptmx[shellID] = oldPtmx
-								p.sessions[shellID] = oldPS
-								p.invShellIDs[inv] = shellID
-								ptmx = oldPtmx
-								exists = true
-								_ = oldInv.SendProgress(nil, nil)
-							}
-							p.Unlock()
-						}
-					}
-					if !exists {
-						newPt, err := p.startPtySession(inv, enc.sendKey, shellID, p.agentSockForCaller(inv.Caller()), "bash")
-						if err != nil {
-							return xconn.NewInvocationError(ErrOperationFailed, err.Error())
-						}
-						ptmx = newPt
-					}
-					winsize := &pty.Winsize{
-						Cols: uint16(cols), // #nosec G115
-						Rows: uint16(rows), // #nosec G115
-					}
-					_ = pty.Setsize(ptmx, winsize)
-				}
-				return xconn.NewInvocationError(xconn.ErrNoResult)
-			}
-
-			if !exists {
-				newPt, err := p.startPtySession(inv, enc.sendKey, shellID, p.agentSockForCaller(inv.Caller()), "bash")
-				if err != nil {
-					return xconn.NewInvocationError(ErrOperationFailed, err.Error())
-				}
-				ptmx = newPt
-			}
-
-			_, err = ptmx.Write(payload)
-			if err != nil {
-				return xconn.NewInvocationError(ErrOperationFailed, err.Error())
-			}
-			return xconn.NewInvocationError(xconn.ErrNoResult)
-		}
-
-		if id, err := inv.ArgString(0); err == nil && id != "" {
-			shellID = id
-		}
-		p.cleanupShell(shellID, inv)
-		return xconn.NewInvocationResult()
-	}
 }
 
 func (p *interactiveShellSession) handleExec() func(_ context.Context,
@@ -554,20 +446,22 @@ func (p *interactiveShellSession) handleExec() func(_ context.Context,
 					if cols < 0 || cols > math.MaxUint16 || rows < 0 || rows > math.MaxUint16 {
 						return xconn.NewInvocationError(ErrInvalidArgument, "invalid size")
 					}
-					if !exists {
-						// Agent forwarding is a shell-only feature (see agentforward.go); exec
-						// gets no agent socket even if one is active for this caller.
-						newPt, err := p.startPtySession(inv, enc.sendKey, shellID, "", command, args...)
-						if err != nil {
-							return xconn.NewInvocationError(ErrOperationFailed, err.Error())
-						}
-						ptmx = newPt
-					}
 					winsize := &pty.Winsize{
 						Cols: uint16(cols), // #nosec G115
 						Rows: uint16(rows), // #nosec G115
 					}
-					_ = pty.Setsize(ptmx, winsize)
+					if !exists {
+						// Agent forwarding is a shell-only feature (see agentforward.go); exec
+						// gets no agent socket even if one is active for this caller.
+						transport := &wampShellTransport{inv: inv, sendKey: enc.sendKey}
+						_, err := p.startPtySession(transport, shellID, "", inv.KwargStringOr("prev-shell", ""),
+							command, winsize, args...)
+						if err != nil {
+							return xconn.NewInvocationError(ErrOperationFailed, err.Error())
+						}
+					} else {
+						_ = pty.Setsize(ptmx, winsize)
+					}
 				}
 				return xconn.NewInvocationError(xconn.ErrNoResult)
 			}
@@ -587,6 +481,8 @@ func (p *interactiveShellSession) handleExec() func(_ context.Context,
 	}
 }
 
+// StartInteractiveCommand runs exec (still WAMP-based; see shellclient.go's
+// RunShell for the raw-stream interactive shell client).
 func StartInteractiveCommand(session *xconn.Session, realm, procedureName string, args ...string) error {
 	fd := int(os.Stdin.Fd()) // #nosec
 	oldState, err := term.MakeRaw(fd)
@@ -720,18 +616,6 @@ func StartInteractiveCommand(session *xconn.Session, realm, procedureName string
 					return
 				}
 				keyExchangeOnce.Do(func() { close(keyExchangeReady) })
-				return
-			}
-
-			if bytes.HasPrefix(data, []byte("MIGRATE:")) {
-				// Still opaque to us: relay the ciphertext to the local proxy as-is,
-				// only it and the device ever hold the key to open it.
-				if realm != "" {
-					blob := append([]byte(nil), data[len("MIGRATE:"):]...)
-					SafeGo(func() {
-						_ = session.Call(ProcedureProxyShellMigrate).Args(blob).Do()
-					})
-				}
 				return
 			}
 

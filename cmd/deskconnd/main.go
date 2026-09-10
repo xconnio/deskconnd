@@ -71,18 +71,17 @@ func main() {
 
 	proxyCalls := deskconn.NewProxyCalls()
 	// Agent forwarding gets its own ProxyCalls: a "deskconn shell -A" invocation runs the
-	// shell call and the agent-forward call concurrently over the same local session, and
-	// both ProxyShellHandler and ProxyAgentForwardHandler key purely by caller (session) ID,
-	// so sharing proxyCalls with ProcedureProxyShell/ProcedureProxyExec would let the two
-	// calls clobber each other's state.
+	// shell connection and the agent-forward call concurrently, and ProxyAgentForwardHandler
+	// keys purely by caller (session) ID, so sharing proxyCalls with ProcedureProxyExec would
+	// let the two calls clobber each other's state.
 	agentForwardProxyCalls := deskconn.NewProxyCalls()
 	clientSession := deskconn.NewClientSessions()
 
 	// If a caller's local WAMP session goes away mid-call (Ctrl-C, killed process, dropped
 	// connection) without ever sending its final non-progressive message, the goroutines
-	// spawned by ProxyShellHandler/ProxyProgressiveInvocationHandler/ProxyLogsHandler/
-	// ProxyAgentForwardHandler would otherwise block forever on proxyCall.progressChan and
-	// their ProxyCalls entries would never be freed. Clean both up on session leave.
+	// spawned by ProxyProgressiveInvocationHandler/ProxyLogsHandler/ProxyAgentForwardHandler
+	// would otherwise block forever on proxyCall.progressChan and their ProxyCalls entries
+	// would never be freed. Clean both up on session leave.
 	subRespSessionLeave := sess.Subscribe(deskconn.MetaTopicSessionLeave, func(event *xconn.Event) {
 		sessionID, err := event.ArgUInt64(0)
 		if err != nil {
@@ -93,18 +92,6 @@ func main() {
 	}).Do()
 	if subRespSessionLeave.Err != nil {
 		log.Fatal(subRespSessionLeave.Err)
-	}
-
-	regRespShell := sess.Register(deskconn.ProcedureProxyShell, deskconn.ProxyShellHandler(proxyCalls,
-		clientSession, cfgDirectory)).Do()
-	if regRespShell.Err != nil {
-		log.Fatal(regRespShell.Err)
-	}
-
-	regRespShellMigrate := sess.Register(deskconn.ProcedureProxyShellMigrate,
-		deskconn.ProxyShellMigrateHandler(proxyCalls)).Do()
-	if regRespShellMigrate.Err != nil {
-		log.Fatal(regRespShellMigrate.Err)
 	}
 
 	regRespExec := sess.Register(deskconn.ProcedureProxyExec, deskconn.ProxyProgressiveInvocationHandler(proxyCalls,

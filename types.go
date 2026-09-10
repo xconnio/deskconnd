@@ -12,28 +12,17 @@ import (
 )
 
 type ProxyCall struct {
-	progressChan  chan *xconn.Progress
-	closeFunc     func()
-	closed        bool
-	streamID      uint64
-	migrateBlobCh chan []byte // set once by ProxyShellMigrateHandler, read once during migration
+	progressChan chan *xconn.Progress
+	closeFunc    func()
+	closed       bool
+	streamID     uint64
 
 	sync.Mutex
 }
 
 func newProxyCall() *ProxyCall {
 	return &ProxyCall{
-		progressChan:  make(chan *xconn.Progress, 32),
-		migrateBlobCh: make(chan []byte, 1),
-	}
-}
-
-// setMigrateBlob delivers the client-relayed encrypted migration token. Safe to call at
-// most meaningfully once; later calls are dropped since the channel is already full.
-func (pc *ProxyCall) setMigrateBlob(blob []byte) {
-	select {
-	case pc.migrateBlobCh <- blob:
-	default:
+		progressChan: make(chan *xconn.Progress, 32),
 	}
 }
 

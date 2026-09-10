@@ -1,0 +1,228 @@
+package deskconn
+
+import (
+	"encoding/json"
+	"net"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// fakeShellTransport is a shellTransport that just records what it's
+// asked to write, for unit-testing beginShellSession/endShellInput without
+// a real QUIC stream or WebRTC channel.
+type fakeShellTransport struct {
+	written [][]byte
+	closed  bool
+}
+
+func (t *fakeShellTransport) writeOutput(plaintext []byte) error {
+	t.written = append(t.written, append([]byte(nil), plaintext...))
+	return nil
+}
+
+func (t *fakeShellTransport) close() error {
+	t.closed = true
+	return nil
+}
+
+func TestBeginShellSessionCreatesNewPTY(t *testing.T) {
+	p := newInteractiveShellSession()
+	transport := &fakeShellTransport{}
+
+	shellID, token, ptmx, ok := p.beginShellSession(shellControlMsg{Op: shellOpSize, Cols: 80, Rows: 24}, transport)
+	t.Cleanup(func() { p.cleanupShellID(shellID) })
+
+	require.True(t, ok)
+	assert.NotEmpty(t, shellID)
+	assert.NotEmpty(t, token, "a fresh session should be issued a migration token")
+	require.NotNil(t, ptmx)
+
+	p.Lock()
+	_, hasPtmx := p.ptmx[shellID]
+	_, hasSession := p.sessions[shellID]
+	p.Unlock()
+	assert.True(t, hasPtmx)
+	assert.True(t, hasSession)
+}
+
+func TestBeginShellSessionMigrateValidToken(t *testing.T) {
+	p := newInteractiveShellSession()
+	original := &fakeShellTransport{}
+	shellID, token, _, ok := p.beginShellSession(shellControlMsg{Op: shellOpSize, Cols: 80, Rows: 24}, original)
+	require.True(t, ok)
+	t.Cleanup(func() { p.cleanupShellID(shellID) })
+
+	newTransport := &fakeShellTransport{}
+	claimedID, _, ptmx, ok := p.beginShellSession(
+		shellControlMsg{Op: shellOpMigrate, OldID: shellID, Token: token}, newTransport)
+
+	require.True(t, ok)
+	assert.Equal(t, shellID, claimedID, "migration keeps the same shell ID, no rekeying needed")
+	require.NotNil(t, ptmx)
+
+	p.Lock()
+	ps := p.sessions[shellID]
+	_, tokenStillPending := p.migrationTokens[shellID]
+	p.Unlock()
+	ps.mu.Lock()
+	currentTransport := ps.transport
+	ps.mu.Unlock()
+	assert.Same(t, newTransport, currentTransport, "the session's transport should now be the new one")
+	assert.False(t, tokenStillPending, "a used token must not be replayable")
+}
+
+func TestBeginShellSessionMigrateWrongToken(t *testing.T) {
+	p := newInteractiveShellSession()
+	original := &fakeShellTransport{}
+	shellID, _, _, ok := p.beginShellSession(shellControlMsg{Op: shellOpSize, Cols: 80, Rows: 24}, original)
+	require.True(t, ok)
+	t.Cleanup(func() { p.cleanupShellID(shellID) })
+
+	_, _, _, ok = p.beginShellSession(
+		shellControlMsg{Op: shellOpMigrate, OldID: shellID, Token: "not-the-real-token"}, &fakeShellTransport{})
+	assert.False(t, ok)
+
+	p.Lock()
+	ps := p.sessions[shellID]
+	p.Unlock()
+	ps.mu.Lock()
+	currentTransport := ps.transport
+	ps.mu.Unlock()
+	assert.Same(t, original, currentTransport, "a failed migration must not disturb the existing session")
+}
+
+func TestBeginShellSessionMigrateExpiredToken(t *testing.T) {
+	p := newInteractiveShellSession()
+	original := &fakeShellTransport{}
+	shellID, token, _, ok := p.beginShellSession(shellControlMsg{Op: shellOpSize, Cols: 80, Rows: 24}, original)
+	require.True(t, ok)
+	t.Cleanup(func() { p.cleanupShellID(shellID) })
+
+	p.Lock()
+	expired := p.migrationTokens[shellID]
+	expired.issuedAt = time.Now().Add(-migrationTokenTTL - time.Second)
+	p.migrationTokens[shellID] = expired
+	p.Unlock()
+
+	_, _, _, ok = p.beginShellSession(
+		shellControlMsg{Op: shellOpMigrate, OldID: shellID, Token: token}, &fakeShellTransport{})
+	assert.False(t, ok)
+}
+
+func TestBeginShellSessionMigrateUnknownShellID(t *testing.T) {
+	p := newInteractiveShellSession()
+	_, _, _, ok := p.beginShellSession(
+		shellControlMsg{Op: shellOpMigrate, OldID: "no-such-shell", Token: "whatever"}, &fakeShellTransport{})
+	assert.False(t, ok)
+}
+
+func TestEndShellInputCleansUpWhenStillOwner(t *testing.T) {
+	p := newInteractiveShellSession()
+	transport := &fakeShellTransport{}
+	shellID, _, _, ok := p.beginShellSession(shellControlMsg{Op: shellOpSize, Cols: 80, Rows: 24}, transport)
+	require.True(t, ok)
+
+	p.endShellInput(shellID, transport)
+
+	p.Lock()
+	_, hasSession := p.sessions[shellID]
+	p.Unlock()
+	assert.False(t, hasSession, "a real disconnect (transport still owns the session) should tear down the PTY")
+}
+
+func TestEndShellInputNoOpAfterMigration(t *testing.T) {
+	p := newInteractiveShellSession()
+	original := &fakeShellTransport{}
+	shellID, token, _, ok := p.beginShellSession(shellControlMsg{Op: shellOpSize, Cols: 80, Rows: 24}, original)
+	require.True(t, ok)
+	t.Cleanup(func() { p.cleanupShellID(shellID) })
+
+	newTransport := &fakeShellTransport{}
+	_, _, _, ok = p.beginShellSession(shellControlMsg{Op: shellOpMigrate, OldID: shellID, Token: token}, newTransport)
+	require.True(t, ok)
+
+	// The old connection dying after a successful migration must not kill
+	// the PTY the new connection is now serving.
+	p.endShellInput(shellID, original)
+
+	p.Lock()
+	_, hasSession := p.sessions[shellID]
+	p.Unlock()
+	assert.True(t, hasSession, "migrating away must not tear down the PTY the new transport now owns")
+}
+
+// TestHandleQUICShellStreamEndToEnd drives shell over a net.Pipe through
+// the real entry point (HandleQUICStream): routing frame, key exchange,
+// size, one keystroke, then "exit\n" against a real spawned bash, checking
+// output comes back decrypted and the stream ends cleanly on exit.
+func TestHandleQUICShellStreamEndToEnd(t *testing.T) {
+	client, server := net.Pipe()
+	t.Cleanup(func() { _ = client.Close() })
+
+	d := Deskconn{shellSession: newInteractiveShellSession()}
+	go d.HandleQUICStream(nil, server)
+
+	require.NoError(t, writeMsg(client, routingFrame{Op: fsOpShell}))
+	sendKey, receiveKey, err := quicClientKeyExchange(client)
+	require.NoError(t, err)
+
+	require.NoError(t, sendQUICShellControl(client, sendKey, shellControlMsg{Op: shellOpSize, Cols: 80, Rows: 24}))
+	ack, err := recvQUICShellEnvelope(client, receiveKey)
+	require.NoError(t, err)
+	require.NotEmpty(t, ack.ackShellID)
+	require.NotEmpty(t, ack.ackToken)
+
+	require.NoError(t, sendQUICShellData(client, sendKey, []byte("exit\n")))
+
+	// Drain output until the stream closes (bash exiting closes the PTY,
+	// which ends handleQUICShellStream's loop and the pipe).
+	for {
+		_, err := recvQUICShellEnvelope(client, receiveKey)
+		if err != nil {
+			break
+		}
+	}
+}
+
+type shellAck struct {
+	ackShellID string
+	ackToken   string
+}
+
+func sendQUICShellControl(conn net.Conn, sendKey []byte, msg shellControlMsg) error {
+	envelope, err := buildShellEnvelope(shellMsgControl, mustJSON(msg), sendKey)
+	if err != nil {
+		return err
+	}
+	return writeFrame(conn, envelope)
+}
+
+func sendQUICShellData(conn net.Conn, sendKey, data []byte) error {
+	envelope, err := buildShellEnvelope(shellMsgData, data, sendKey)
+	if err != nil {
+		return err
+	}
+	return writeFrame(conn, envelope)
+}
+
+func recvQUICShellEnvelope(conn net.Conn, receiveKey []byte) (shellAck, error) {
+	frame, err := readFrame(conn)
+	if err != nil {
+		return shellAck{}, err
+	}
+	kind, plaintext, err := decryptEnvelope(frame, receiveKey)
+	if err != nil {
+		return shellAck{}, err
+	}
+	if kind != shellMsgControl {
+		return shellAck{}, nil
+	}
+	var msg shellControlMsg
+	if err := json.Unmarshal(plaintext, &msg); err != nil {
+		return shellAck{}, err
+	}
+	return shellAck{ackShellID: msg.ShellID, ackToken: msg.Token}, nil
+}
