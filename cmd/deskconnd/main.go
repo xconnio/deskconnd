@@ -380,7 +380,7 @@ func runDeviceSession(cfgDirectory, host string, clientSession *deskconn.ClientS
 			"running in server mode: display APIs disabled")
 	}
 
-	deskconnApis := deskconn.NewDeskconn(screen, mpris, audio, isDesktop)
+	deskconnApis := deskconn.NewDeskconn(screen, mpris, audio, isDesktop, cfgDirectory)
 	currentDeskconn.Store(deskconnApis)
 	defer currentDeskconn.CompareAndSwap(deskconnApis, nil)
 

@@ -81,7 +81,7 @@ type Deskconn struct {
 	vpn                  *vpnServer
 }
 
-func NewDeskconn(screen *Screen, mpris *MPRIS, audio *Audio, desktopEnvironment bool) *Deskconn {
+func NewDeskconn(screen *Screen, mpris *MPRIS, audio *Audio, desktopEnvironment bool, cfgDirectory string) *Deskconn {
 	d := &Deskconn{
 		shellSession:         newInteractiveShellSession(),
 		keys:                 newKeyManager(),
@@ -105,13 +105,7 @@ func NewDeskconn(screen *Screen, mpris *MPRIS, audio *Audio, desktopEnvironment 
 		d.wallpaper = NewWallpaper(screen.SessionBus())
 	}
 
-	cfgDir, err := CfgDirectory()
-	if err != nil {
-		log.Printf("fileindex: failed to get config directory: %v", err)
-		return d
-	}
-
-	indexer, err := NewIndexService(cfgDir)
+	indexer, err := NewIndexService(cfgDirectory)
 	if err != nil {
 		log.Printf("fileindex: failed to create index service: %v", err)
 		return d
