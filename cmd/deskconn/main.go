@@ -139,8 +139,11 @@ func main() {
 		HintAction(remotePathCompletions(cfgDirectory)).String()
 	cpRecursive := cpCmd.Flag("recursive", "Copy directories recursively").Short('r').Bool()
 	cpModeFlag := cpCmd.Flag("mode",
-		"Connection mode: 'quic' uses QUIC stream via router, 'p2p' uses direct WebRTC",
+		"Connection mode: 'quic' uses QUIC stream via router, 'p2p' uses direct WebRTC "+
+			"(default: try p2p, fall back to quic)",
 	).Enum(ModeQUIC, ModeP2P)
+	cpStreams := cpCmd.Flag("streams", "Number of parallel streams to use for the transfer (default 4)").
+		Short('s').Int()
 
 	rmCmd := fileCmd.Command("rm", "Remove a file or directory on a device")
 	rmTarget := rmCmd.Arg("target", "Remote path as device:path (e.g. m1:/tmp/a.txt)").Required().
@@ -440,26 +443,38 @@ func main() {
 					return
 				}
 				defer quicSess.Close()
-				if err := deskconn.PushFilesQUIC(quicSess, *cpSrc, dstPath, *cpRecursive); err != nil {
+				if err := deskconn.UploadFilesQUIC(quicSess, realm, *cpSrc, dstPath, *cpRecursive,
+					*cpStreams); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 				}
 			case ModeP2P:
-				p2pSess, err := deskconn.ConnectDeviceRealmP2P(context.Background(), realm, cfgDirectory)
+				p2pSess, err := deskconn.ConnectDeviceRealmP2PSession(context.Background(), realm, cfgDirectory)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					return
 				}
-				defer func() { _ = p2pSess.Leave() }()
-				if err := deskconn.PushFiles(p2pSess, *cpSrc, dstPath, *cpRecursive); err != nil {
+				defer func() { _ = p2pSess.Close() }()
+				if err := deskconn.UploadFilesP2P(p2pSess, *cpSrc, dstPath, *cpRecursive, *cpStreams); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 				}
 			default:
-				localSession, err := xconn.ConnectAnonymous(context.Background(), uri, deskconn.LocalRealm)
+				p2pSess, p2pErr := deskconn.ConnectDeviceRealmP2PSession(context.Background(), realm, cfgDirectory)
+				if p2pErr == nil {
+					defer func() { _ = p2pSess.Close() }()
+					if err := deskconn.UploadFilesP2P(p2pSess, *cpSrc, dstPath, *cpRecursive, *cpStreams); err != nil {
+						fmt.Fprintln(os.Stderr, err)
+					}
+					return
+				}
+				fmt.Fprintln(os.Stderr, "p2p unavailable, falling back to quic")
+				quicSess, err := deskconn.ConnectDeviceRealmQUIC(context.Background(), realm, cfgDirectory)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					return
 				}
-				if err := deskconn.PushFilesViaProxy(localSession, realm, *cpSrc, dstPath, *cpRecursive); err != nil {
+				defer quicSess.Close()
+				if err := deskconn.UploadFilesQUIC(quicSess, realm, *cpSrc, dstPath, *cpRecursive,
+					*cpStreams); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 				}
 			}
@@ -478,26 +493,39 @@ func main() {
 					return
 				}
 				defer quicSess.Close()
-				if err := deskconn.PullFilesQUIC(quicSess, srcPath, *cpDst, *cpRecursive); err != nil {
+				if err := deskconn.DownloadFilesQUIC(quicSess, realm, srcPath, *cpDst, *cpRecursive,
+					*cpStreams); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 				}
 			case ModeP2P:
-				p2pSess, err := deskconn.ConnectDeviceRealmP2P(context.Background(), realm, cfgDirectory)
+				p2pSess, err := deskconn.ConnectDeviceRealmP2PSession(context.Background(), realm, cfgDirectory)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					return
 				}
-				defer func() { _ = p2pSess.Leave() }()
-				if err := deskconn.PullFiles(p2pSess, srcPath, *cpDst, *cpRecursive); err != nil {
+				defer func() { _ = p2pSess.Close() }()
+				if err := deskconn.DownloadFilesP2P(p2pSess, srcPath, *cpDst, *cpRecursive, *cpStreams); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 				}
 			default:
-				localSession, err := xconn.ConnectAnonymous(context.Background(), uri, deskconn.LocalRealm)
+				p2pSess, p2pErr := deskconn.ConnectDeviceRealmP2PSession(context.Background(), realm, cfgDirectory)
+				if p2pErr == nil {
+					defer func() { _ = p2pSess.Close() }()
+					if err := deskconn.DownloadFilesP2P(p2pSess, srcPath, *cpDst, *cpRecursive,
+						*cpStreams); err != nil {
+						fmt.Fprintln(os.Stderr, err)
+					}
+					return
+				}
+				fmt.Fprintln(os.Stderr, "p2p unavailable, falling back to quic")
+				quicSess, err := deskconn.ConnectDeviceRealmQUIC(context.Background(), realm, cfgDirectory)
 				if err != nil {
 					fmt.Fprintln(os.Stderr, err)
 					return
 				}
-				if err := deskconn.PullFilesViaProxy(localSession, realm, srcPath, *cpDst, *cpRecursive); err != nil {
+				defer quicSess.Close()
+				if err := deskconn.DownloadFilesQUIC(quicSess, realm, srcPath, *cpDst, *cpRecursive,
+					*cpStreams); err != nil {
 					fmt.Fprintln(os.Stderr, err)
 				}
 			}

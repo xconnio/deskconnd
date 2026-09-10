@@ -43,8 +43,6 @@ const (
 	ProcedureProxyLogs         = "io.xconn.deskconn.deskconnd.proxy.logs"
 	ProcedureProxyPing         = "io.xconn.deskconn.deskconnd.proxy.ping"
 	ProcedureProxyCat          = "io.xconn.deskconn.deskconnd.proxy.file.cat"
-	ProcedureProxyFilePush     = "io.xconn.deskconn.deskconnd.proxy.file.push"
-	ProcedureProxyFilePull     = "io.xconn.deskconn.deskconnd.proxy.file.pull"
 	ProcedureProxyPortForward  = "io.xconn.deskconn.deskconnd.proxy.port.forward"
 	ProcedureProxyPortReverse  = "io.xconn.deskconn.deskconnd.proxy.port.reverse"
 	ProcedureProxyPrinterList  = "io.xconn.deskconn.deskconnd.proxy.printer.list"
@@ -59,8 +57,6 @@ const (
 	ProcedureConnectedDevices  = "io.xconn.deskconn.connected_devices"
 
 	ProcedureListDesktop = "io.xconn.deskconn.desktop.list"
-
-	ProcedureAppUpdateCheck = "io.xconn.deskconn.app.update.check"
 
 	LocalRealm = "io.xconn.deskconn.local"
 	CloudRealm = "io.xconn.deskconn"
@@ -956,40 +952,6 @@ func ProxyPrinterPrintHandler(clientSessions *ClientSessions, cfgDirectory strin
 		}
 
 		return xconn.NewInvocationResult(callResp.Args()...)
-	}
-}
-
-func ProxyFilePullHandler(clientSessions *ClientSessions, cfgDirectory string) xconn.InvocationHandler {
-	return func(ctx context.Context, inv *xconn.Invocation) *xconn.InvocationResult {
-		realm, err := inv.ArgString(0)
-		if err != nil {
-			return xconn.NewInvocationError(ErrInvalidArgument, err.Error())
-		}
-		remotePath, err := inv.ArgString(1)
-		if err != nil {
-			return xconn.NewInvocationError(ErrInvalidArgument, err.Error())
-		}
-		recursive, _ := inv.ArgBool(2)
-		publicKey, err := inv.ArgBytes(3)
-		if err != nil {
-			return xconn.NewInvocationError(ErrInvalidArgument, err.Error())
-		}
-
-		deviceSess, err := clientSessions.EnsureDeviceSession(ctx, realm, cfgDirectory)
-		if err != nil {
-			return xconn.NewInvocationError(ErrOperationFailed, err.Error())
-		}
-
-		callResp := deviceSess.Call(ProcedureFileDownload).
-			ProgressReceiver(func(pr *xconn.ProgressResult) {
-				_ = inv.SendProgress(pr.Args(), nil)
-			}).
-			Args(remotePath, recursive, publicKey).DoContext(ctx)
-
-		if callResp.Err != nil {
-			return xconn.NewInvocationError(ErrOperationFailed, callResp.Err.Error())
-		}
-		return xconn.NewInvocationResult()
 	}
 }
 
