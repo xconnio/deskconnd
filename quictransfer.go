@@ -192,18 +192,23 @@ func quicServerKeyExchange(stream net.Conn) (sendKey, receiveKey []byte, err err
 	return sendKey, receiveKey, nil
 }
 
-// HandleQUICStream serves a single QUIC stream: list/init are one-shot
-// requests that reply and return; read/write go to quicServeSession, which
-// keeps the stream open across many chunk requests from the same worker --
-// reopening a stream per chunk was measured to badly limit throughput on
-// real (non-loopback) links.
+// HandleQUICStream serves a single QUIC stream. The leading routingFrame's
+// Op says which protocol the rest of the stream speaks: fsOpShell goes to
+// handleQUICShellStream; list/init are one-shot file-transfer requests that
+// reply and return; read/write go to quicServeSession, which keeps the
+// stream open across many chunk requests from the same worker -- reopening
+// a stream per chunk was measured to badly limit throughput on real
+// (non-loopback) links.
 func (d *Deskconn) HandleQUICStream(_ xconn.BaseSession, stream net.Conn) {
 	defer stream.Close()
 
-	// Leading routingFrame, present on every stream once it's reached here
-	// via the router -- see routingFrame's doc comment. Discarded.
-	var discard fsRequest
-	if err := readMsg(stream, &discard); err != nil {
+	var route routingFrame
+	if err := readMsg(stream, &route); err != nil {
+		return
+	}
+
+	if route.Op == fsOpShell {
+		d.handleQUICShellStream(stream)
 		return
 	}
 
